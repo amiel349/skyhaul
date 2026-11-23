@@ -36,7 +36,9 @@ channel.basic_publish(
 incoming = codec.decode(body)
 ```
 
-Never build message JSON by hand. Bodies larger than `MAX_MESSAGE_BYTES` (64 KiB) are rejected before parsing.
+Never build message JSON by hand. Bodies larger than `MAX_MESSAGE_BYTES` (64 KiB, 65,536 bytes) are rejected before parsing. `decode` raises `MalformedMessage` for anything that is not bytes-like, and every `DecodeError` has a `.detail` that fits a NACK (≤ 256 characters, no input values).
+
+Round trips are **JSON-equal, not byte-identical**: decoding and re-encoding normalizes whitespace and key order, drops unknown payload fields, and turns an integer in a number field into a float (`40` becomes `40.0`). Codec output itself re-encodes byte for byte.
 
 ## Versioning rule
 
@@ -64,6 +66,8 @@ Readers ignore unknown payload fields (tolerant reader), which is what makes add
 
 ## Other rules
 
+- Wire JSON is stricter than RFC 8259: no `NaN`/`Infinity`, no number that overflows to infinity (`1e400`), no duplicate keys, no lone surrogate escapes (I-JSON, RFC 7493).
+- A type with an empty payload (`ARM`, `LAND`, `RETURN_HOME`) accepts any object shape, because payloads are tolerant readers: an `ARM` with an ACK-shaped payload decodes as `ARM`. The `type` decides what a message is.
 - Optional fields are never nullable: a field is either required (and may be `null` if the schema says so) or optional (absent or a value, never `null`). The Codec leaves out unset optional fields.
 - Every numeric field has a unit in its name or description and both a minimum and a maximum.
 - Timestamps are UTC with millisecond precision: `2026-11-23T10:00:00.123Z`.

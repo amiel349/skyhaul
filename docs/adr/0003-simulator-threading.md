@@ -34,9 +34,11 @@ A fourth thread serves the HTTP control API (spawn, faults, reset). It changes s
 
 ## Amendment · 2026-11-23 · scheduler timing and failure isolation
 
-Settled while building the jobs board (#7); details in `docs/architecture/m1-design.md` section 5.
+Settled while building the jobs board (#7, PR #12); details in `docs/architecture/m1-design.md` section 5.
 
-- **Due times stay on the period grid.** After a job emits, `next_due += period`; if that is still `<= now` (a stall of a whole period or more), `next_due = now + period`. Using `now + period` every time adds each tick's wake-up delay to the period, so a 1 s heartbeat averaged 1.05 to 1.1 s on a real clock. After a stall the job still emits exactly once, with no catch-up burst.
-- **No rollback for handlers.** A handler that raises after changing the board keeps its changes. Handlers therefore check every precondition before they mutate anything. The consumer logs the traceback after the board transaction, sends NACK `INTERNAL_ERROR` and acks.
-- **A raising job is isolated.** If a job's `tick` or `render` raises, the scheduler skips that job for this tick and goes on with the others. It logs the error after releasing the board lock, so one faulty job never stops other drones' telemetry.
+- **Due times stay on each job's own grid.** On time, `next_due += period`. Using `now + period` instead adds each tick's wake-up delay to the period, so a 1 s heartbeat averaged 1.05 to 1.1 s on a real clock. After a stall, `next_due` jumps to the first slot on the job's grid after `now` (`floor((now - next_due) / period) + 1` slots): the job emits once, with no catch-up burst, and keeps its phase. A non-finite `now` raises `ValueError`.
+- **Jobs are frozen.** A `Job` validates `period_s` (finite, > 0) and `next_due` (finite) when built. Only the contents of `Job.values` change in place; identity, period and correlation id change only by upserting a new `Job`. The board keeps the real next due time in its own entry, and `World.get` returns a private copy carrying it. On upsert, the stored `next_due` is kept if the period is unchanged; otherwise the earlier of the stored and the requested one wins.
+- **Transactions are copy-on-write.** Changes made through the `World` are staged and committed only when the `with` block ends normally, and dropped if it raises or on `world.discard()`. `dispatch` discards when a handler fails, so a failed handler leaves the board unchanged (this replaces the earlier "no rollback" rule). One `dispatch` per transaction.
+- **No nested locking.** A public board call from the thread that already holds the lock raises `RuntimeError` instead of deadlocking.
+- **A raising job is isolated.** `due()` returns `DueResult(messages, errors)`. A job whose `tick` or `render` raises is reported in `errors`, its output for that call is dropped, and the other jobs go on. The scheduler logs the errors after the lock is released. Reply, tick-event and render payloads are deep copies, so the publisher never reads live state.
 - The control API thread is the fourth long-lived thread mentioned above. The count stays four regardless of how many drones exist.

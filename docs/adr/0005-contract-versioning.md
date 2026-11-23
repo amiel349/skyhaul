@@ -15,7 +15,7 @@ ADR 0002 puts the message schemas in `contracts/` with a `schema_version` in the
 - **Closed envelope, tolerant payloads.** The envelope has `additionalProperties: false`. Payload schemas leave it open, and the models ignore unknown fields (`extra="ignore"`).
 - **Optional fields are never nullable.** An optional field is absent or has a value; the Codec omits unset optional fields. Nullable fields are always required.
 - **Generated code is committed.** datamodel-code-generator (Pydantic v2) and json-schema-to-typescript, both pinned exactly. `make contracts` regenerates; `make check` and the CI `contracts` job regenerate in a scratch directory with a pinned formatter config and fail on any byte difference with "run make contracts".
-- The Codec validates in Pydantic strict mode and re-decodes its own output on encode, so the generated models are the runtime authority and the JSON Schemas are the source they are generated from. The golden examples prove the two agree.
+- The Codec validates the envelope in Pydantic strict mode and the already-parsed payload with generated `Strict*` scalar types, and re-decodes its own output on encode, so the generated models are the runtime authority and the JSON Schemas are the source they are generated from. The golden examples prove the two agree.
 
 ## Consequences
 
