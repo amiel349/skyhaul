@@ -1,0 +1,16 @@
+{
+  "msg_id": "7a1c3e5f-2b4d-4c6e-8f10-000000000015",
+  "correlation_id": "5c2d7e9a-8b31-4f60-a1d4-6e7f8091a2b3",
+  "drone_id": "gw0-d001",
+  "type": "MISSION_STATUS",
+  "schema_version": 1,
+  "ts": "2026-11-23T10:00:00.123Z",
+  "payload": {
+    "mission_id": "m-001",
+    "state": "ACTIVE",
+    "waypoint_index": 0,
+    "waypoints_total": 2,
+    "progress_pct": 12.5,
+    "added_in_v1_1": "x"
+  }
+}

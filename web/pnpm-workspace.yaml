@@ -1,2 +1,7 @@
 # Supply-chain guard: don't install package versions published less than 7 days ago.
 minimumReleaseAge: 10080
+
+# Held back to a version older than 14 days, the age rule for newly added dependencies
+# (transitive via json-schema-to-typescript). Drop once Dependabot moves past it.
+overrides:
+  prettier: 3.9.10

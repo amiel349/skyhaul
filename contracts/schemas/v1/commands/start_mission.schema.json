@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StartMissionPayload",
+  "description": "START_MISSION: fly the waypoints in order and hover at the last one. Allowed when ARMED or airborne with no active mission.",
+  "type": "object",
+  "required": [
+    "mission_id",
+    "waypoints"
+  ],
+  "properties": {
+    "mission_id": {
+      "$ref": "../common.schema.json#/$defs/MissionId"
+    },
+    "waypoints": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/Waypoint"
+      }
+    }
+  }
+}

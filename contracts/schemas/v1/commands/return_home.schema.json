@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReturnHomePayload",
+  "description": "RETURN_HOME: fly to the spawn point, land and disarm. Aborts any mission. No fields. Unknown fields are ignored (tolerant reader).",
+  "type": "object",
+  "required": [],
+  "properties": {}
+}

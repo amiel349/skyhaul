@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MissionStatusPayload",
+  "description": "MISSION_STATUS: every 2 s while ACTIVE, plus one final COMPLETED or ABORTED.",
+  "type": "object",
+  "required": [
+    "mission_id",
+    "state",
+    "waypoint_index",
+    "waypoints_total",
+    "progress_pct"
+  ],
+  "properties": {
+    "mission_id": {
+      "$ref": "../common.schema.json#/$defs/MissionId"
+    },
+    "state": {
+      "$ref": "../common.schema.json#/$defs/MissionState"
+    },
+    "waypoint_index": {
+      "description": "Zero-based index of the waypoint being flown to: a count of waypoints already reached.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50
+    },
+    "waypoints_total": {
+      "description": "Number of waypoints in the mission: a count.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "progress_pct": {
+      "description": "Mission progress in percent.",
+      "$ref": "../common.schema.json#/$defs/Percent"
+    }
+  }
+}

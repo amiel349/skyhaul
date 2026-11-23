@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PositionPayload",
+  "description": "POSITION: every 1 s while airborne, plus one final message on touchdown.",
+  "type": "object",
+  "required": [
+    "lat",
+    "lon",
+    "altitude_m",
+    "heading_deg",
+    "ground_speed_mps",
+    "target"
+  ],
+  "properties": {
+    "lat": {
+      "$ref": "../common.schema.json#/$defs/Lat"
+    },
+    "lon": {
+      "$ref": "../common.schema.json#/$defs/Lon"
+    },
+    "altitude_m": {
+      "description": "Reported altitude in meters above the home point.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 150
+    },
+    "heading_deg": {
+      "$ref": "../common.schema.json#/$defs/HeadingDeg"
+    },
+    "ground_speed_mps": {
+      "description": "Reported ground speed in meters per second.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 25
+    },
+    "target": {
+      "description": "Where the drone is flying to, or null when it has no target.",
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/GeoPoint"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}
