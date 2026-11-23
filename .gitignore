@@ -1,0 +1,42 @@
+# Secrets: never commit. Only .env.example belongs in git.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+web/dist/
+web/coverage/
+
+# Test evidence (may contain tokens until scrubbed)
+test-results/
+playwright-report/
+allure-results/
+allure-report/
+traces/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local settings
+.claude/settings.local.json

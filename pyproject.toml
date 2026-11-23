@@ -1,0 +1,43 @@
+[project]
+name = "skyhaul"
+version = "0.0.0"
+description = "Drone delivery operations platform with a multithreaded drone simulator and an AI-assisted test automation framework"
+requires-python = ">=3.12"
+dependencies = ["skyhaul-api"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["services/*"]
+
+[tool.uv.sources]
+skyhaul-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pip-audit>=2.10.1",
+    "pytest>=8.4",
+    "pytest-cov>=7.0",
+    "ruff>=0.14",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["services/*/src"]
+
+[tool.pytest.ini_options]
+testpaths = ["services"]
+addopts = "--import-mode=importlib -ra"
