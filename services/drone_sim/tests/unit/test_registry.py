@@ -1,4 +1,5 @@
 import importlib.util
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -293,3 +294,55 @@ def test_successful_handler_changes_reach_the_board_when_the_transaction_ends() 
         registry.dispatch(world, make_command("ARM"), now=0.0)
 
     assert board.snapshot()[0]["values"] == {"armed": True}
+
+
+def test_reply_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        return [Outgoing(command.drone_id, "ACK", command.correlation_id, job.values, True)]
+
+    def count_tick(job: Job, dt: float) -> list[Outgoing]:
+        job.values["n"] += 1
+        return []
+
+    board = JobsBoard()
+    board.upsert(
+        Job(
+            "main-d001",
+            "HEARTBEAT",
+            1.0,
+            100.0,
+            render=lambda job: {},
+            tick=count_tick,
+            values={"n": 0},
+        )
+    )
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+    board.due(now=1.0, dt=0.1)
+    board.due(now=1.1, dt=0.1)
+
+    assert reply.payload == {"n": 0}
+    assert board.snapshot()[0]["values"] == {"n": 2}
+
+
+def test_reply_payload_that_cannot_be_copied_gets_an_internal_error_nack() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        world.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=lambda job: {}))
+        return [Outgoing(command.drone_id, "ACK", None, threading.Lock(), True)]
+
+    board = JobsBoard()
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert isinstance(reply.payload.error, TypeError)
+    assert board.snapshot() == []

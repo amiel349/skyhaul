@@ -10,8 +10,9 @@ command types are plain strings. The wiring PR switches them to
 `skyhaul_contracts.Message` and `CommandType`.
 """
 
+import copy
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from skyhaul_drone_sim.board import World
 from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
@@ -130,14 +131,15 @@ class Registry:
             return [_nack(command, "UNKNOWN_TYPE", "no handler for this command type")]
         try:
             replies = handler(world, command, now)
+            if not is_outgoing_list(replies):
+                raise TypeError(
+                    f"handler returned {type(replies).__name__}, expected list[Outgoing]"
+                )
+            # Copies, so the publisher never reads live job state.
+            return [replace(reply, payload=copy.deepcopy(reply.payload)) for reply in replies]
         except Exception as exc:
             world.discard()
             return [_nack(command, "INTERNAL_ERROR", _INTERNAL_ERROR_DETAIL, exc)]
-        if not is_outgoing_list(replies):
-            world.discard()
-            error = TypeError(f"handler returned {type(replies).__name__}, expected list[Outgoing]")
-            return [_nack(command, "INTERNAL_ERROR", _INTERNAL_ERROR_DETAIL, error)]
-        return replies
 
 
 def _name(handler: Handler) -> str:
