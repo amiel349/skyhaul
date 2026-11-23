@@ -198,3 +198,17 @@ def test_optional_payload_fields_are_never_nullable(paths: Any) -> None:
             for name, prop in node.get("properties", {}).items():
                 if name not in required:
                     assert not allows_null(prop), f"{path.name}: {name}"
+
+
+@pytest.mark.parametrize("depth", [200, 300, 900])
+def test_unknown_payload_field_nested_deep_is_ignored_by_both_validators(
+    paths: Any, schemas: Any, strict_json: Any, depth: int
+) -> None:
+    """The Codec validates the parsed object, so it agrees with jsonschema at any depth
+    json.loads itself accepts (it used to re-serialize and hit Pydantic's JSON depth limit)."""
+    doc = json.loads((paths.examples / "HEARTBEAT" / "valid" / "minimal.json").read_text())
+    text = json.dumps(doc)[:-2] + ', "deep": ' + "[" * depth + "]" * depth + "}}"
+
+    assert schemas.errors(strict_json(text)) == []
+    msg = Codec().decode(text.encode())
+    assert "deep" not in msg.payload.model_dump()

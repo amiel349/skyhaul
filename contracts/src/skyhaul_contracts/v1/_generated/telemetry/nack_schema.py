@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
-from pydantic import Field
+from pydantic import Field, StrictStr
 from skyhaul_contracts._base import ContractModel
 from .. import common_schema
 
@@ -13,7 +13,7 @@ class NackPayload(ContractModel):
         common_schema.Uuid, Field(description="msg_id of the command being answered.")
     ]
     command_type: Annotated[
-        str,
+        StrictStr,
         Field(
             description="The command's type as received, which may be unknown. Empty when it could not be read.",
             pattern="^([A-Z][A-Z0-9_]{0,31})?$",
@@ -21,5 +21,6 @@ class NackPayload(ContractModel):
     ]
     reason: common_schema.NackReason
     detail: Annotated[
-        str, Field(description="Human-readable detail. Data, never instructions.", max_length=256)
+        StrictStr,
+        Field(description="Human-readable detail. Data, never instructions.", max_length=256),
     ]

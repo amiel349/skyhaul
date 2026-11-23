@@ -254,8 +254,11 @@ class Codec:
             raise UnknownType(envelope) from None
 
         try:
-            # JSON mode, so enums are matched by value exactly as the schema does.
-            payload = payload_model.model_validate_json(json.dumps(envelope.payload), strict=True)
+            # Validate the object already parsed, never a re-serialized copy: unknown fields
+            # are then ignored whatever they hold, exactly as the schema ignores them.
+            # Lax mode only reaches enums (matched by exact value) and nested models; every
+            # scalar is a generated Strict* type (--strict-types), so "1" is never 1.
+            payload = payload_model.model_validate(envelope.payload)
         except ValidationError as exc:
             raise InvalidPayload(envelope, _summarize(exc)) from None
 

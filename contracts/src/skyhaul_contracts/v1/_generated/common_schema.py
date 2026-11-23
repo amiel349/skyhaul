@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
-from pydantic import Field
+from pydantic import Field, StrictFloat, StrictInt, StrictStr
 from skyhaul_contracts._base import ContractModel
 from enum import StrEnum
 
@@ -18,7 +18,7 @@ type Common = Annotated[
 
 
 type Uuid = Annotated[
-    str,
+    StrictStr,
     Field(
         description="Canonical lowercase UUID string, any version.",
         pattern="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -28,7 +28,7 @@ type Uuid = Annotated[
 
 
 type DroneId = Annotated[
-    str,
+    StrictStr,
     Field(
         description="Lowercase letters, digits and dashes. No '.', '*' or '#', so it is always one safe routing-key word.",
         pattern="^[a-z0-9][a-z0-9-]{0,63}$",
@@ -38,7 +38,7 @@ type DroneId = Annotated[
 
 
 type Timestamp = Annotated[
-    str,
+    StrictStr,
     Field(
         description="RFC 3339 UTC timestamp with exactly millisecond precision and a 'Z' suffix, e.g. 2026-11-23T10:00:00.123Z. Producer wall clock.",
         pattern="^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$",
@@ -48,7 +48,7 @@ type Timestamp = Annotated[
 
 
 type TypeName = Annotated[
-    str,
+    StrictStr,
     Field(
         description="Wire form of a message type: uppercase letters, digits and underscores. Whether the type is known is decided by the catalogue (MessageType), not by the envelope, so an unknown type can still be answered with a NACK.",
         pattern="^[A-Z][A-Z0-9_]{0,31}$",
@@ -135,16 +135,16 @@ class MissionState(StrEnum):
     ABORTED = "ABORTED"
 
 
-type MissionId = Annotated[str, Field(pattern="^[A-Za-z0-9_-]{1,64}$", title="MissionId")]
+type MissionId = Annotated[StrictStr, Field(pattern="^[A-Za-z0-9_-]{1,64}$", title="MissionId")]
 
 
 type Lat = Annotated[
-    float, Field(description="Latitude in degrees, WGS84.", ge=-90.0, le=90.0, title="Lat")
+    StrictFloat, Field(description="Latitude in degrees, WGS84.", ge=-90.0, le=90.0, title="Lat")
 ]
 
 
 type Lon = Annotated[
-    float,
+    StrictFloat,
     Field(
         description="Longitude in degrees, WGS84. 180 is written as -180.",
         ge=-180.0,
@@ -155,7 +155,7 @@ type Lon = Annotated[
 
 
 type AltitudeM = Annotated[
-    float,
+    StrictFloat,
     Field(
         description="Commanded altitude in meters above the home point (AGL).",
         ge=5.0,
@@ -166,7 +166,7 @@ type AltitudeM = Annotated[
 
 
 type SpeedMps = Annotated[
-    float,
+    StrictFloat,
     Field(
         description="Commanded horizontal speed in meters per second.",
         ge=0.5,
@@ -177,7 +177,7 @@ type SpeedMps = Annotated[
 
 
 type HeadingDeg = Annotated[
-    float,
+    StrictFloat,
     Field(
         description="Heading in degrees true, clockwise from north.",
         ge=0.0,
@@ -188,12 +188,13 @@ type HeadingDeg = Annotated[
 
 
 type Percent = Annotated[
-    float, Field(description="A percentage from 0 to 100.", ge=0.0, le=100.0, title="Percent")
+    StrictFloat, Field(description="A percentage from 0 to 100.", ge=0.0, le=100.0, title="Percent")
 ]
 
 
 type DurationS = Annotated[
-    int, Field(description="A whole number of seconds.", ge=0, le=2147483647, title="DurationS")
+    StrictInt,
+    Field(description="A whole number of seconds.", ge=0, le=2147483647, title="DurationS"),
 ]
 
 

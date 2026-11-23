@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import Field, StrictFloat
 from typing import Annotated
-from pydantic import Field
 from skyhaul_contracts._base import ContractModel
 from .. import common_schema
 
@@ -12,12 +12,13 @@ class PositionPayload(ContractModel):
     lat: common_schema.Lat
     lon: common_schema.Lon
     altitude_m: Annotated[
-        float,
+        StrictFloat,
         Field(description="Reported altitude in meters above the home point.", ge=0.0, le=150.0),
     ]
     heading_deg: common_schema.HeadingDeg
     ground_speed_mps: Annotated[
-        float, Field(description="Reported ground speed in meters per second.", ge=0.0, le=25.0)
+        StrictFloat,
+        Field(description="Reported ground speed in meters per second.", ge=0.0, le=25.0),
     ]
     target: Annotated[
         common_schema.GeoPoint | None,

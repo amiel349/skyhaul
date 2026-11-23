@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from pydantic import Field, StrictBool
 from typing import Annotated
-from pydantic import Field
 from skyhaul_contracts._base import ContractModel
 from .. import common_schema
 
 
 class HeartbeatPayload(ContractModel):
     flight_state: common_schema.FlightState
-    armed: bool
+    armed: StrictBool
     uptime_s: Annotated[
         common_schema.DurationS, Field(description="Seconds since the drone was spawned.")
     ]

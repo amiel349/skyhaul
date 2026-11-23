@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import Field, StrictInt
 from typing import Annotated
-from pydantic import Field
 from skyhaul_contracts._base import ContractModel
 from .. import common_schema
 
@@ -12,9 +12,10 @@ class MissionStatusPayload(ContractModel):
     mission_id: common_schema.MissionId
     state: common_schema.MissionState
     waypoint_index: Annotated[
-        int, Field(description="Zero-based index of the waypoint being flown to.", ge=0, le=50)
+        StrictInt,
+        Field(description="Zero-based index of the waypoint being flown to.", ge=0, le=50),
     ]
-    waypoints_total: Annotated[int, Field(ge=1, le=50)]
+    waypoints_total: Annotated[StrictInt, Field(ge=1, le=50)]
     progress_pct: Annotated[
         common_schema.Percent, Field(description="Mission progress in percent.")
     ]

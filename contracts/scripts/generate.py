@@ -41,6 +41,11 @@ DATAMODEL_FLAGS = (
     "--disable-timestamp",
     "--formatters=ruff-format",
     "--base-class=skyhaul_contracts._base.ContractModel",
+    "--strict-types",
+    "str",
+    "int",
+    "float",
+    "bool",
 )
 
 
