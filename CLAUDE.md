@@ -19,10 +19,11 @@ The test automation infrastructure is the centerpiece. Treat test code with the 
 | `tools/` | Fake LLM, triage agent | automation |
 | `deploy/` | Compose, Dockerfiles, k8s | automation |
 | `docs/adr/` | Architecture decision records | architect |
+| `docs/architecture/` | Milestone design notes | architect |
 | `docs/security/` | Threat model | security |
 | `docs/product/` | Product notes | product |
 
-Folders appear when their milestone starts. Today only `services/api/` and `web/` exist, as stubs.
+Folders appear when their milestone starts. Today `contracts/` exists, plus `services/api/` and `web/` as stubs.
 
 ## Commands
 
@@ -30,14 +31,16 @@ Folders appear when their milestone starts. Today only `services/api/` and `web/
 make setup      # uv sync, pnpm install, pre-commit install
 make env        # create .env with generated secrets (never commit it)
 make up         # start postgres, rabbitmq, redis, api (ports on 127.0.0.1)
-make check      # lint, typecheck, unit tests, secret scan: what CI runs
+make check      # lint, typecheck, tests, contracts drift check, secret scan: what CI runs
+make contracts  # regenerate Pydantic models and TS types after changing contracts/schemas
+make test-integration  # Testcontainers tests (needs Docker); `make test` skips them
 ```
 
 Python: `uv run pytest`, `uv run ruff check .`, `uv run mypy`. Web (in `web/`): `pnpm lint`, `pnpm typecheck`, `pnpm test`.
 
 ## Key design rules
 
-- Every message has an envelope: `msg_id`, `correlation_id`, `drone_id`, `type`, `schema_version`, `ts`. Commands go to the `fleet.cmd` topic exchange, telemetry to `fleet.telemetry`, routing key `drone.<id>.<type>`.
+- Every message has an envelope: `msg_id`, `correlation_id`, `drone_id`, `type`, `schema_version`, `ts`. Commands go to the `fleet.cmd` topic exchange, telemetry to `fleet.telemetry`, routing key `drone.<id>.<TYPE>` (types are uppercase). All encoding and decoding goes through `skyhaul_contracts.Codec`; the schemas in `contracts/schemas/` are the source of truth. See `contracts/README.md` and `docs/adr/0005-contract-versioning.md`.
 - Simulator: three long-lived threads. The consumer (main) decodes and dispatches. The scheduler ticks every 100 ms. The publisher is the only thread that sends, on its own connection. Periodic state lives on an in-memory jobs board behind one lock. Handlers never sleep and never publish. See `docs/adr/0003-simulator-threading.md`.
 - Tests isolate by namespace plus a reset call, not by a fresh environment per test. See `docs/adr/0004-test-isolation.md`.
 - Push every check to the lowest test layer that can prove it.

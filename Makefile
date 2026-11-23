@@ -1,9 +1,9 @@
 COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
 
-.PHONY: help setup env up down logs ps lint typecheck test check secrets
+.PHONY: help setup env up down logs ps lint typecheck test test-integration contracts contracts-check check secrets
 
 help: ## Show this help
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-11s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 setup: ## Install Python and web dependencies and git hooks
 	uv sync
@@ -34,11 +34,20 @@ typecheck: ## Type-check Python and web code
 	uv run mypy
 	cd web && pnpm typecheck
 
-test: ## Run unit tests
-	uv run pytest
+test: ## Run unit, contract and concurrency tests
+	uv run pytest -m "not integration"
 	cd web && pnpm test
+
+test-integration: ## Run integration tests (needs Docker for Testcontainers)
+	uv run pytest -m integration
+
+contracts: ## Regenerate Pydantic models and TS types from contracts/schemas
+	uv run python contracts/scripts/generate.py
+
+contracts-check: ## Fail if the generated contracts are out of date
+	uv run python contracts/scripts/generate.py --check
 
 secrets: ## Scan the whole git history for secrets
 	gitleaks git --redact --no-banner -v
 
-check: lint typecheck test secrets ## Run everything CI runs
+check: lint typecheck test contracts-check secrets ## Run everything CI runs (except integration)
