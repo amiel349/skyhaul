@@ -56,3 +56,4 @@ Python: `uv run pytest`, `uv run ruff check .`, `uv run mypy`. Web (in `web/`): 
 - Conventional commits (`feat:`, `fix:`, `test:`, `ci:`, `docs:`, `chore:`), squash merge.
 - Per task: product writes the issue, architect writes the design note and lands contracts first, backend and frontend implement (in parallel, separate worktrees), automation writes E2E tests from the acceptance criteria, QA verifies, security reviews, then a PR. The human approves the issue and merges every PR.
 - Small tasks skip agents that add nothing.
+- Every PR also gets an automated Claude review in CI (`.github/workflows/claude-review.yml`). It is advisory; address or answer its comments before merging.
