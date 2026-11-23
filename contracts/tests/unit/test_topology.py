@@ -45,7 +45,14 @@ def test_declare_topology_declares_durable_exchanges_and_bounded_queues() -> Non
         (
             "queue_declare",
             ("fleet.dead",),
-            {"durable": True, "arguments": {"x-max-length": 10_000, "x-overflow": "drop-head"}},
+            {
+                "durable": True,
+                "arguments": {
+                    "x-max-length": 10_000,
+                    "x-max-length-bytes": 655_360_000,
+                    "x-overflow": "drop-head",
+                },
+            },
         ),
         ("queue_bind", ("fleet.dead", "fleet.dlx"), {}),
         (
@@ -59,6 +66,7 @@ def test_declare_topology_declares_durable_exchanges_and_bounded_queues() -> Non
                     "x-delivery-limit": 5,
                     "x-dead-letter-exchange": "fleet.dlx",
                     "x-max-length": 10_000,
+                    "x-max-length-bytes": 655_360_000,
                     "x-overflow": "reject-publish",
                 },
             },
@@ -80,3 +88,10 @@ def test_declare_debug_tap_is_bounded_and_drops_oldest() -> None:
         ("debug.telemetry", "fleet.telemetry"),
         {"routing_key": "drone.*.*"},
     )
+
+
+def test_queue_byte_bound_is_the_length_bound_times_the_message_size_limit() -> None:
+    from skyhaul_contracts.codec import MAX_MESSAGE_BYTES
+    from skyhaul_contracts.topology import MAX_QUEUE_BYTES, MAX_QUEUE_LENGTH
+
+    assert MAX_QUEUE_BYTES == MAX_QUEUE_LENGTH * MAX_MESSAGE_BYTES

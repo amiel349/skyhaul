@@ -125,8 +125,8 @@ All names and arguments are constants in `skyhaul_contracts.topology`.
 | `fleet.cmd` | topic exchange | yes | |
 | `fleet.telemetry` | topic exchange | yes | |
 | `fleet.dlx` | fanout exchange | yes | Dead-letter target |
-| `fleet.dead` | queue (classic) | yes | Bound to `fleet.dlx`. `x-max-length=10000`, `x-overflow=drop-head` (keeps the newest evidence under a flood). Inspected by hand, no consumer |
-| `drone_sim.cmd` | **quorum** queue | yes | Bound to `fleet.cmd` with `drone.*.*`. `x-dead-letter-exchange=fleet.dlx`, `x-delivery-limit=5`, `x-single-active-consumer=true`, `x-max-length=10000`, `x-overflow=reject-publish` |
+| `fleet.dead` | queue (classic) | yes | Bound to `fleet.dlx`. `x-max-length=10000`, `x-max-length-bytes=655360000` (10,000 × 64 KiB), `x-overflow=drop-head` (keeps the newest evidence under a flood). Inspected by hand, no consumer |
+| `drone_sim.cmd` | **quorum** queue | yes | Bound to `fleet.cmd` with `drone.*.*`. `x-dead-letter-exchange=fleet.dlx`, `x-delivery-limit=5`, `x-single-active-consumer=true`, `x-max-length=10000`, `x-max-length-bytes=655360000`, `x-overflow=reject-publish` |
 | `debug.telemetry` | classic queue, optional | no | Only when `SIM_DEBUG_TAP=1` (`declare_debug_tap`). Bound to `fleet.telemetry` with `drone.*.*`, `x-max-length=1000`, `x-overflow=drop-head` |
 | Telemetry consumers | | | Owned by their service (ingestor in M2). Tests and the MCP server use exclusive auto-delete queues bound to `drone_binding(id)` = `drone.<id>.*` |
 
@@ -388,7 +388,7 @@ On time, that is `next_due += period`: adding the period to the previous due tim
 | 12 | A bad message never stops the consumer (reaction table in section 3) | Integration: garbage bytes, unknown type and a raising handler, then a valid ARM still gets an ACK |
 | 13 | A job emits at most once per due check and stays on its own period grid: on time `next_due += period` (no drift); after a stall it jumps to the first slot after `now` (`floor((now - next_due) / period) + 1` slots), emits once and keeps its phase: no burst. `dt` is at most 0.5 s; a non-finite `now` raises `ValueError`. A raising tick or render affects only its own job and is reported in `DueResult.errors` | `FakeClock` advanced in 100 ms steps for 10 s gives exactly 10 HEARTBEATs; jumped 10 s gives one, still on the original phase; a job whose render raises leaves other drones' jobs emitting |
 | 14 | `reset(ns)` is atomic and isolated. After it returns, no state with prefix `ns-` remains, other namespaces are untouched, and nothing produced before the reset gets published (epoch) | Concurrency test: reset `gw0` while `gw1` ticks and commands run |
-| 15 | Memory is bounded: outbox `maxsize=1000`, dedup cache ≤256 per drone, delayed replies capped at 1 000 per namespace (overflow → NACK `INTERNAL_ERROR`), message bodies ≤ `MAX_MESSAGE_BYTES` (65,536 bytes), broker queues ≤ 10 000 messages (section 3) | Unit tests |
+| 15 | Memory is bounded: outbox `maxsize=1000`, dedup cache ≤256 per drone, delayed replies capped at 1 000 per namespace (overflow → NACK `INTERNAL_ERROR`), message bodies ≤ `MAX_MESSAGE_BYTES` (65,536 bytes), broker queues ≤ 10 000 messages and ≤ 655,360,000 bytes (section 3) | Unit tests |
 | 16 | Clean shutdown within 10 s (sequence below) | Integration: SIGTERM with messages in flight. Exit 0, everything enqueued before the sentinel is confirmed, unacked commands are requeued |
 
 **Shutdown sequence** (on SIGTERM or SIGINT, or `Simulator.stop()`):
@@ -527,7 +527,7 @@ Approved by the human on 2026-11-23.
 | 11 | Message size limit | **`MAX_MESSAGE_BYTES = 64 * 1024`** (64 KiB, 65,536 bytes) in `skyhaul_contracts.codec`, enforced only by the Codec: before parsing on decode, after serializing on encode (section 4) |
 | 12 | Link loss vs dedup | **Link loss is checked before the dedup cache**, so nothing is published during link loss, even for a duplicate `msg_id`. The injected-NACK gate runs after dedup so one `msg_id` always gets one answer (section 5, dispatch) |
 | 13 | Scheduler due-time formula and transactions (from the jobs-board implementation, PR #12) | **`next_due += period`; after a stall, the first slot on the job's own grid after `now`**: no drift, no burst, each job keeps its phase. **Copy-on-write transactions**: a failed handler leaves the board unchanged. Nested locking raises instead of hanging. A raising tick or render is isolated per job (section 5, ADR 0003) |
-| 14 | Queue length bounds (security review) | `drone_sim.cmd`: `x-max-length=10000`, `x-overflow=reject-publish`; `fleet.dead`: `x-max-length=10000`, `x-overflow=drop-head`. Fixed in v1 because queue arguments cannot change later (section 3, ADR 0006) |
+| 14 | Queue length bounds (security review) | `drone_sim.cmd`: `x-max-length=10000`, `x-overflow=reject-publish`; `fleet.dead`: `x-max-length=10000`, `x-overflow=drop-head`. Both also get `x-max-length-bytes=655360000` (10,000 × 64 KiB), because the message count alone does not bound bytes for a publisher that skips the Codec (Grok security review on PR #14). Fixed in v1 because queue arguments cannot change later (section 3, ADR 0006) |
 | 15 | Who gets a NACK `UNSUPPORTED_VERSION` (security review) | Only the drone named by the routing key, and only when it equals `hint.drone_id`; otherwise the message is dead-lettered (section 4) |
 | 16 | Lone surrogates (QA review) | **Rejected at parse** (I-JSON), not accepted-then-unencodable, so every decoded message can be re-encoded (section 1) |
 

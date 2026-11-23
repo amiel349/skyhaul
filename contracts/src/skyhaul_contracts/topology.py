@@ -24,10 +24,18 @@ ALL_DRONES_BINDING: Final = "drone.*.*"
 # Queue arguments cannot change after the first declare (PRECONDITION_FAILED), so the length
 # bounds are part of the contract from v1 on (ADR 0006).
 MAX_QUEUE_LENGTH: Final = 10_000
+# A byte bound too: x-max-length counts messages only, and a publisher that skips the Codec
+# could otherwise fill a queue with very large bodies. 10,000 messages of at most
+# MAX_MESSAGE_BYTES (65,536) each; a unit test keeps this equal to that product.
+MAX_QUEUE_BYTES: Final = 655_360_000
 
 DEAD_LETTER_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
     # Inspected by hand; under a flood keep the newest evidence and drop the oldest.
-    {"x-max-length": MAX_QUEUE_LENGTH, "x-overflow": "drop-head"}
+    {
+        "x-max-length": MAX_QUEUE_LENGTH,
+        "x-max-length-bytes": MAX_QUEUE_BYTES,
+        "x-overflow": "drop-head",
+    }
 )
 
 SIM_COMMAND_QUEUE: Final = "drone_sim.cmd"
@@ -40,6 +48,7 @@ SIM_COMMAND_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
         # Commands are never dropped silently: when full, the broker nacks new publishes,
         # so a sender using publisher confirms sees back-pressure.
         "x-max-length": MAX_QUEUE_LENGTH,
+        "x-max-length-bytes": MAX_QUEUE_BYTES,
         "x-overflow": "reject-publish",
     }
 )

@@ -119,6 +119,11 @@ def test_command_and_dead_letter_queues_are_length_bounded_on_the_broker(broker:
     dead = _queue_arguments(broker, topology.DEAD_LETTER_QUEUE)
 
     assert command["x-max-length"] == 10_000
+    assert command["x-max-length-bytes"] == 655_360_000
     assert command["x-overflow"] == "reject-publish"
     assert command["x-queue-type"] == "quorum"
-    assert dead == {"x-max-length": 10_000, "x-overflow": "drop-head"}
+    assert dead == {
+        "x-max-length": 10_000,
+        "x-max-length-bytes": 655_360_000,
+        "x-overflow": "drop-head",
+    }
