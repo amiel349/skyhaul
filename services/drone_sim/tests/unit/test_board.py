@@ -612,3 +612,29 @@ def test_world_sees_its_own_staged_changes() -> None:
     assert again is first
     assert (removed, after_remove, removed_twice) == (True, None, False)
     assert board.snapshot() == []
+
+
+def test_jobs_keep_their_own_phase_after_a_stall() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(type="HEARTBEAT", period_s=1.0, next_due=10.3))
+    board.upsert(make_job(type="BATTERY", period_s=1.0, next_due=10.7))
+
+    stalled = board.due(now=12.0, dt=1.7).messages
+
+    assert [out.type for out in stalled] == ["HEARTBEAT", "BATTERY"]
+    assert {job["type"]: job["next_due"] for job in board.snapshot()} == {
+        "HEARTBEAT": 12.3,
+        "BATTERY": 12.7,
+    }
+
+
+def test_due_exactly_on_a_later_slot_schedules_the_slot_after_it() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+
+    first = board.due(now=3.0, dt=0.1).messages
+    same_slot = board.due(now=3.0, dt=0.1).messages
+
+    assert len(first) == 1
+    assert same_slot == []
+    assert only_job(board)["next_due"] == 4.0

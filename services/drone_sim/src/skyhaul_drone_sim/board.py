@@ -136,10 +136,12 @@ def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
 
 
 def _advance(entry: _Entry, now: float) -> None:
+    """Move next_due to the first slot on the job's own grid that is after `now`."""
     period_s = entry.job.period_s
-    entry.next_due += period_s
-    if entry.next_due <= now:
-        entry.next_due = now + period_s
+    missed = math.floor((now - entry.next_due) / period_s)
+    entry.next_due += period_s * (missed + 1)
+    if entry.next_due <= now:  # float rounding put it on `now` itself
+        entry.next_due += period_s
 
 
 def _to_dict(entry: _Entry) -> dict[str, Any]:
@@ -251,11 +253,12 @@ class JobsBoard:
         """Run every job's tick, then emit each job that is due.
 
         A job is emitted at most once per call, when `now >= next_due`. Its next
-        due time then moves one period along its own grid (`next_due += period_s`),
-        so a tick that wakes late does not shift later emissions (no drift). If the
-        scheduler fell more than a period behind, the next due time restarts at
-        `now + period_s`: the job is emitted once, with no catch-up burst. `dt` is
-        capped at MAX_TICK_DT_S, and a non-finite `dt` counts as 0.
+        due time then moves to the first slot on its own grid that is after `now`
+        (`next_due + k * period_s`). So a tick that wakes late does not shift later
+        emissions (no drift), and after a stall the missed slots are skipped: the
+        job is emitted once, with no catch-up burst, and keeps its own phase, so
+        jobs do not all bunch onto the same tick. `dt` is capped at
+        MAX_TICK_DT_S, and a non-finite `dt` counts as 0.
 
         Order: jobs are handled in the order they were first added (a replaced job
         keeps its place, a removed and re-added one goes last). Each job's tick
