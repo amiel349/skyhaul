@@ -79,5 +79,5 @@ def test_world_offers_only_in_memory_job_operations() -> None:
     with JobsBoard().transaction() as world:
         state = [getattr(world, slot) for slot in World.__slots__]
 
-    assert public == {"get", "upsert", "remove"}
-    assert [type(value) for value in state] == [dict, bool]
+    assert public == {"get", "upsert", "remove", "discard"}
+    assert [type(value) for value in state] == [dict, bool, dict]

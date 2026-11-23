@@ -3,7 +3,15 @@ import math
 from typing import Any
 
 import pytest
-from skyhaul_drone_sim.board import MAX_TICK_DT_S, DueResult, Job, JobError, JobsBoard, TickFn
+from skyhaul_drone_sim.board import (
+    MAX_TICK_DT_S,
+    DueResult,
+    Job,
+    JobError,
+    JobsBoard,
+    TickFn,
+    World,
+)
 from skyhaul_drone_sim.clock import FakeClock
 from skyhaul_drone_sim.outbox import Outgoing
 
@@ -552,3 +560,55 @@ def test_world_get_carries_the_boards_actual_next_due() -> None:
 
 def job_key(job: dict[str, Any]) -> tuple[str, str]:
     return (job["drone_id"], job["type"])
+
+
+# --- transactions are copy-on-write ---
+
+
+def test_transaction_that_raises_changes_nothing_on_the_board() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(type="HEARTBEAT", values={"armed": False}))
+    board.upsert(make_job(type="BATTERY"))
+    before = board.snapshot()
+
+    def change_then_fail(world: World) -> None:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        world.upsert(make_job(type="POSITION"))
+        world.remove("main-d001", "BATTERY")
+        raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError), board.transaction() as world:
+        change_then_fail(world)
+
+    assert board.snapshot() == before
+
+
+def test_discard_drops_the_changes_staged_so_far_but_keeps_later_ones() -> None:
+    board = JobsBoard()
+
+    with board.transaction() as world:
+        world.upsert(make_job(type="HEARTBEAT"))
+        world.discard()
+        world.upsert(make_job(type="BATTERY"))
+
+    assert [job_key(job) for job in board.snapshot()] == [("main-d001", "BATTERY")]
+
+
+def test_world_sees_its_own_staged_changes() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(type="HEARTBEAT"))
+
+    with board.transaction() as world:
+        first = world.get("main-d001", "HEARTBEAT")
+        assert first is not None
+        first.values["n"] = 1
+        again = world.get("main-d001", "HEARTBEAT")
+        removed = world.remove("main-d001", "HEARTBEAT")
+        after_remove = world.get("main-d001", "HEARTBEAT")
+        removed_twice = world.remove("main-d001", "HEARTBEAT")
+
+    assert again is first
+    assert (removed, after_remove, removed_twice) == (True, None, False)
+    assert board.snapshot() == []

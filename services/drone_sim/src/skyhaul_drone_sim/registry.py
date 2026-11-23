@@ -19,6 +19,7 @@ from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
 type CommandType = str
 
 _MAX_COMMAND_TYPE_LEN = 32
+_INTERNAL_ERROR_DETAIL = "the command could not be handled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +77,8 @@ def _nack(command: Command, reason: str, detail: str, error: Exception | None = 
 class Registry:
     """Maps each command type to its one handler.
 
-    Handlers must validate before they change the World, because a raising
-    handler's changes are not rolled back.
+    A handler that fails (raises, or returns anything but a list of Outgoing) has
+    its World changes discarded, so the NACK it gets matches the drone's state.
     """
 
     def __init__(self) -> None:
@@ -110,8 +111,10 @@ class Registry:
 
         Called inside a board transaction, so it never logs, sleeps or publishes. A
         handler that raises, or returns anything but a list of Outgoing, gets an
-        INTERNAL_ERROR NACK instead of propagating, and the exception rides on the
-        placeholder for the consumer to log.
+        INTERNAL_ERROR NACK instead of propagating, and every change staged in the
+        World is discarded (call dispatch once per transaction). The detail is a
+        fixed string; the exception rides on the placeholder for the consumer to
+        log with its traceback.
 
         Steps added by later PRs, in this order (approved design):
         1. Unknown drone: return [] (#9).
@@ -128,10 +131,12 @@ class Registry:
         try:
             replies = handler(world, command, now)
         except Exception as exc:
-            return [_nack(command, "INTERNAL_ERROR", f"handler raised {type(exc).__name__}", exc)]
+            world.discard()
+            return [_nack(command, "INTERNAL_ERROR", _INTERNAL_ERROR_DETAIL, exc)]
         if not is_outgoing_list(replies):
-            detail = f"handler returned {type(replies).__name__}, expected list[Outgoing]"
-            return [_nack(command, "INTERNAL_ERROR", detail, TypeError(detail))]
+            world.discard()
+            error = TypeError(f"handler returned {type(replies).__name__}, expected list[Outgoing]")
+            return [_nack(command, "INTERNAL_ERROR", _INTERNAL_ERROR_DETAIL, error)]
         return replies
 
 

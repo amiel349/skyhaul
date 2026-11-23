@@ -136,7 +136,7 @@ def test_raising_handler_returns_an_internal_error_nack_instead_of_propagating()
             command_msg_id="msg-7",
             command_type="GOTO",
             reason="INTERNAL_ERROR",
-            detail="handler raised ValueError",
+            detail="the command could not be handled",
             error=failure,
         ),
         persistent=True,
@@ -221,5 +221,75 @@ def test_handler_that_returns_anything_but_a_list_of_outgoing_gets_an_internal_e
     assert reply.correlation_id == "corr-1"
     assert isinstance(reply.payload, NackPlaceholder)
     assert reply.payload.reason == "INTERNAL_ERROR"
-    assert reply.payload.detail == f"handler returned {returned_type}, expected list[Outgoing]"
+    assert reply.payload.detail == "the command could not be handled"
     assert isinstance(reply.payload.error, TypeError)
+    assert str(reply.payload.error) == f"handler returned {returned_type}, expected list[Outgoing]"
+
+
+def test_raising_handler_changes_nothing_on_the_board() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        world.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=lambda job: {}))
+        world.remove("main-d001", "BATTERY")
+        raise RuntimeError("bug after the changes")
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+    board.upsert(Job("main-d001", "BATTERY", 5.0, 5.0, render=lambda job: {}))
+    before = board.snapshot()
+
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert board.snapshot() == before
+
+
+def test_handler_with_a_bad_return_value_changes_nothing_on_the_board() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> Any:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        return None
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert board.snapshot()[0]["values"] == {"armed": False}
+
+
+def test_successful_handler_changes_reach_the_board_when_the_transaction_ends() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        return []
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert board.snapshot()[0]["values"] == {"armed": True}

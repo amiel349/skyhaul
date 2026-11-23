@@ -155,35 +155,60 @@ def _to_dict(entry: _Entry) -> dict[str, Any]:
 
 
 class World:
-    """The board's state while its lock is held.
+    """A transaction on the board, used while its lock is held.
 
     Handed out only by `JobsBoard.transaction()` and valid only inside that `with`
-    block; any use after it raises. `get` returns a job whose `values` are the
-    live ones, so a handler can change them in place, and whose `next_due` is the
-    board's actual next due time. Do not keep the reference past the block.
+    block; any use after it raises. Changes are staged (copy-on-write): `get`
+    returns a private copy of the job, carrying the board's actual next due time,
+    and changes to its `values`, `upsert` and `remove` reach the board only when
+    the block ends normally. If the block raises, or `discard()` is called, none
+    of them do.
     """
 
-    __slots__ = ("_jobs", "_open")
+    __slots__ = ("_jobs", "_open", "_staged")
 
     def __init__(self, jobs: dict[JobKey, _Entry]) -> None:
         self._jobs = jobs
         self._open = True
+        self._staged: dict[JobKey, Job | None] = {}
 
     def get(self, drone_id: str, type: JobType) -> Job | None:
         self._check_open()
-        entry = self._jobs.get((drone_id, type))
+        key = (drone_id, type)
+        if key in self._staged:
+            return self._staged[key]
+        entry = self._jobs.get(key)
         if entry is None:
             return None
-        return dataclasses.replace(entry.job, next_due=entry.next_due)
+        staged = dataclasses.replace(
+            entry.job, values=copy.deepcopy(entry.job.values), next_due=entry.next_due
+        )
+        self._staged[key] = staged
+        return staged
 
     def upsert(self, job: Job) -> None:
-        """Store a copy of `job`, replacing any job with the same key but keeping its next_due."""
+        """Stage a copy of `job`, replacing any job with the same key but keeping its next_due."""
         self._check_open()
-        _upsert(self._jobs, _copy_job(job))
+        self._staged[job.key] = _copy_job(job)
 
     def remove(self, drone_id: str, type: JobType) -> bool:
         self._check_open()
-        return self._jobs.pop((drone_id, type), None) is not None
+        existed = self.get(drone_id, type) is not None
+        self._staged[(drone_id, type)] = None
+        return existed
+
+    def discard(self) -> None:
+        """Drop every change staged in this transaction so far."""
+        self._check_open()
+        self._staged.clear()
+
+    def _commit(self) -> None:
+        for key, job in self._staged.items():
+            if job is None:
+                self._jobs.pop(key, None)
+            else:
+                _upsert(self._jobs, job)
+        self._staged.clear()
 
     def _close(self) -> None:
         self._open = False
@@ -209,11 +234,16 @@ class JobsBoard:
 
     @contextmanager
     def transaction(self) -> Iterator[World]:
-        """Hold the lock for the whole `with` block, for check-then-act and handlers."""
+        """Hold the lock for the whole `with` block, for check-then-act and handlers.
+
+        The World's staged changes are committed when the block ends normally and
+        dropped when it raises.
+        """
         with self._lock:
             world = World(self._jobs)
             try:
                 yield world
+                world._commit()
             finally:
                 world._close()
 
