@@ -7,15 +7,17 @@ parametrized over the golden files by ``pytest_generate_tests``.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError, validators
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
@@ -65,6 +67,27 @@ def _strict_json(text: str) -> Any:
     return obj
 
 
+@functools.cache
+def _ecma_regex(pattern: str) -> re.Pattern[str]:
+    """JSON Schema patterns are ECMA-262: `$` (no m flag) matches only at the very end.
+    Python's `$` also matches before a final newline, so "gw0-d001\n" would pass. Our
+    patterns only use `$` as the final anchor; translate it to `\\Z`."""
+    if pattern.endswith("$") and not pattern.endswith("\\$"):
+        pattern = pattern[:-1] + r"\Z"
+    return re.compile(pattern)
+
+
+def _ecma_pattern(
+    validator: Any, pattern: str, instance: Any, schema: dict[str, Any]
+) -> Iterator[ValidationError]:
+    if validator.is_type(instance, "string") and not _ecma_regex(pattern).search(instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+# Draft 2020-12 with ECMA-262 `pattern` semantics; every other keyword is the stock one.
+EcmaValidator = validators.extend(Draft202012Validator, {"pattern": _ecma_pattern})
+
+
 def _payload_schema_path(type_: str) -> Path:
     group = "commands" if type_ in COMMANDS else "telemetry"
     return SCHEMAS / group / f"{type_.lower()}.schema.json"
@@ -83,8 +106,8 @@ class SchemaSet:
 
     registry: Registry
 
-    def validator(self, path: Path) -> Draft202012Validator:
-        return Draft202012Validator({"$ref": path.as_uri()}, registry=self.registry)
+    def validator(self, path: Path) -> Any:
+        return EcmaValidator({"$ref": path.as_uri()}, registry=self.registry)
 
     def envelope_errors(self, doc: Any) -> list[str]:
         envelope = self.validator(SCHEMAS / "envelope.schema.json")
@@ -118,10 +141,16 @@ def paths() -> Paths:
 
 @pytest.fixture(scope="session")
 def schemas() -> SchemaSet:
-    resources = [
-        (p.as_uri(), Resource.from_contents(json.loads(p.read_text()), DRAFT202012))
-        for p in SCHEMAS.rglob("*.schema.json")
-    ]
+    def load(path: Path) -> Resource[Any]:
+        contents = json.loads(path.read_text())
+        # jsonschema switches to the stock validator class for a referenced resource that
+        # declares $schema, which would drop the ECMA pattern keyword after every $ref. All
+        # files are draft 2020-12 (test_every_schema_file_is_valid_draft_2020_12), so the
+        # registry copy can leave the declaration out.
+        contents.pop("$schema", None)
+        return Resource.from_contents(contents, DRAFT202012)
+
+    resources = [(p.as_uri(), load(p)) for p in SCHEMAS.rglob("*.schema.json")]
     return SchemaSet(Registry().with_resources(resources))
 
 
