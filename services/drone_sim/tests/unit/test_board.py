@@ -672,3 +672,15 @@ def test_world_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
         world.upsert(dataclasses.replace(job, period_s=1.0, next_due=1.0))
 
     assert (only_job(board)["period_s"], only_job(board)["next_due"]) == (1.0, 1.0)
+
+
+@pytest.mark.parametrize("now", [math.nan, math.inf, -math.inf])
+def test_due_rejects_a_now_that_is_not_finite_and_leaves_jobs_alone(now: float) -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+    before = board.snapshot()
+
+    with pytest.raises(ValueError, match="now must be finite"):
+        board.due(now=now, dt=0.1)
+
+    assert board.snapshot() == before

@@ -298,7 +298,12 @@ class JobsBoard:
         list of Outgoing, is reported in `errors` and its output for this call is
         dropped. Its next_due still advances if it was due, so it fails at most once
         per period. Other jobs are not affected.
+
+        Raises ValueError if `now` is not finite (a broken clock), before touching
+        any job.
         """
+        if not math.isfinite(now):
+            raise ValueError(f"now must be finite, got {now}")
         dt = min(max(dt, 0.0), MAX_TICK_DT_S) if math.isfinite(dt) else 0.0
         messages: list[Outgoing] = []
         errors: list[JobError] = []
