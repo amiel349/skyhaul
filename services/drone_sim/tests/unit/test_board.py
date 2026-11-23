@@ -470,3 +470,19 @@ def test_emitted_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
 
     assert out.payload == {"pos": {"n": 1}}
     assert only_job(board)["values"] == {"pos": {"n": 3}}
+
+
+def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
+    def live_event_tick(job: Job, dt: float) -> list[Outgoing]:
+        job.values["pos"]["n"] += 1
+        return [Outgoing(job.drone_id, "ALERT", None, job.values, persistent=True)]
+
+    board = JobsBoard()
+    board.upsert(make_job(next_due=100.0, tick=live_event_tick, values={"pos": {"n": 0}}))
+
+    (event,) = board.due(now=1.0, dt=0.1).messages
+    board.due(now=1.1, dt=0.1)
+    board.due(now=1.2, dt=0.1)
+
+    assert event.payload == {"pos": {"n": 1}}
+    assert only_job(board)["values"] == {"pos": {"n": 3}}

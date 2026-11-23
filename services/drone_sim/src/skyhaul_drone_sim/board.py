@@ -96,7 +96,10 @@ def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
         events = job.tick(job, dt)
         if not is_outgoing_list(events):
             raise TypeError(f"tick returned {type(events).__name__}, expected list[Outgoing]")
-        produced.extend(events)
+        # Copies, so the publisher never reads live job state.
+        produced.extend(
+            dataclasses.replace(event, payload=copy.deepcopy(event.payload)) for event in events
+        )
     if is_due:
         produced.append(
             Outgoing(
