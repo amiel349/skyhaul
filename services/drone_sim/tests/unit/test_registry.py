@@ -1,0 +1,348 @@
+import importlib.util
+import threading
+from pathlib import Path
+from typing import Any
+
+import pytest
+from skyhaul_drone_sim.board import Job, JobsBoard, World
+from skyhaul_drone_sim.outbox import Outgoing
+from skyhaul_drone_sim.registry import (
+    Command,
+    DuplicateHandlerError,
+    NackPlaceholder,
+    Registry,
+)
+
+
+def make_command(type: str = "ARM", msg_id: str = "msg-1") -> Command:
+    return Command(
+        msg_id=msg_id,
+        correlation_id="corr-1",
+        drone_id="main-d001",
+        type=type,
+        payload={},
+    )
+
+
+def ack(command: Command) -> Outgoing:
+    return Outgoing(command.drone_id, "ACK", command.correlation_id, {"ok": True}, persistent=True)
+
+
+def test_handler_registered_for_arm_runs_once_when_an_arm_is_dispatched() -> None:
+    registry = Registry()
+    calls: list[Command] = []
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        calls.append(command)
+        return [ack(command)]
+
+    command = make_command("ARM")
+    with JobsBoard().transaction() as world:
+        replies = registry.dispatch(world, command, now=1.0)
+
+    assert calls == [command]
+    assert replies == [ack(command)]
+
+
+def test_handler_gets_the_world_the_command_and_now() -> None:
+    registry = Registry()
+    seen: list[tuple[World, Command, float]] = []
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        seen.append((world, command, now))
+        return []
+
+    command = make_command("ARM")
+    with JobsBoard().transaction() as world:
+        registry.dispatch(world, command, now=42.5)
+
+    assert seen == [(world, command, 42.5)]
+
+
+def test_handler_changes_the_board_through_the_world() -> None:
+    registry = Registry()
+    board = JobsBoard()
+
+    @registry.handles("TAKEOFF")
+    def handle_takeoff(world: World, command: Command, now: float) -> list[Outgoing]:
+        world.upsert(
+            Job(command.drone_id, "POSITION", 1.0, now + 1.0, render=lambda job: {}),
+        )
+        return []
+
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("TAKEOFF"), now=3.0)
+
+    assert [(job["type"], job["next_due"]) for job in board.snapshot()] == [("POSITION", 4.0)]
+
+
+def test_two_handlers_for_the_same_type_fail_when_the_module_loads(tmp_path: Path) -> None:
+    module_file = tmp_path / "duplicate_handlers.py"
+    module_file.write_text(
+        "from skyhaul_drone_sim.registry import Registry\n"
+        "registry = Registry()\n"
+        "@registry.handles('ARM')\n"
+        "def first(world, command, now):\n"
+        "    return []\n"
+        "@registry.handles('ARM')\n"
+        "def second(world, command, now):\n"
+        "    return []\n"
+    )
+    spec = importlib.util.spec_from_file_location("duplicate_handlers", module_file)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+
+    with pytest.raises(DuplicateHandlerError, match=r"'ARM' already has a handler \(first\)"):
+        spec.loader.exec_module(module)
+
+
+def test_failed_duplicate_registration_keeps_the_first_handler() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def first(world: World, command: Command, now: float) -> list[Outgoing]:
+        return [ack(command)]
+
+    def second(world: World, command: Command, now: float) -> list[Outgoing]:
+        return []
+
+    with pytest.raises(DuplicateHandlerError):
+        registry.handles("ARM")(second)
+
+    command = make_command("ARM")
+    with JobsBoard().transaction() as world:
+        assert registry.dispatch(world, command, now=0.0) == [ack(command)]
+
+
+def test_raising_handler_returns_an_internal_error_nack_instead_of_propagating() -> None:
+    registry = Registry()
+    failure = ValueError("bad altitude 9000")
+
+    @registry.handles("GOTO")
+    def handle_goto(world: World, command: Command, now: float) -> list[Outgoing]:
+        raise failure
+
+    command = make_command("GOTO", msg_id="msg-7")
+    with JobsBoard().transaction() as world:
+        (reply,) = registry.dispatch(world, command, now=0.0)
+
+    assert reply == Outgoing(
+        drone_id="main-d001",
+        type="NACK",
+        correlation_id="corr-1",
+        payload=NackPlaceholder(
+            command_msg_id="msg-7",
+            command_type="GOTO",
+            reason="INTERNAL_ERROR",
+            detail="the command could not be handled",
+            error=failure,
+        ),
+        persistent=True,
+    )
+
+
+def test_registry_keeps_dispatching_after_a_handler_raised() -> None:
+    registry = Registry()
+
+    @registry.handles("GOTO")
+    def handle_goto(world: World, command: Command, now: float) -> list[Outgoing]:
+        raise RuntimeError("bug")
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        return [ack(command)]
+
+    board = JobsBoard()
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("GOTO"), now=0.0)
+    arm = make_command("ARM", msg_id="msg-2")
+    with board.transaction() as world:
+        replies = registry.dispatch(world, arm, now=0.0)
+
+    assert replies == [ack(arm)]
+
+
+def test_type_without_a_handler_returns_an_unknown_type_nack() -> None:
+    registry = Registry()
+
+    command = make_command("FLIP" * 20)
+    with JobsBoard().transaction() as world:
+        (reply,) = registry.dispatch(world, command, now=0.0)
+
+    assert reply.type == "NACK"
+    assert reply.correlation_id == "corr-1"
+    assert reply.payload == NackPlaceholder(
+        command_msg_id="msg-1",
+        command_type=("FLIP" * 20)[:32],
+        reason="UNKNOWN_TYPE",
+        detail="no handler for this command type",
+    )
+
+
+def test_command_types_lists_every_registered_type() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        return []
+
+    @registry.handles("LAND")
+    def handle_land(world: World, command: Command, now: float) -> list[Outgoing]:
+        return []
+
+    assert registry.command_types() == frozenset({"ARM", "LAND"})
+
+
+@pytest.mark.parametrize(
+    ("returned", "returned_type"),
+    [
+        (None, "NoneType"),
+        ((Outgoing("main-d001", "ACK", "corr-1", {}, persistent=True),), "tuple"),
+        ([{"ack": True}], "list"),
+        (Outgoing("main-d001", "ACK", "corr-1", {}, persistent=True), "Outgoing"),
+    ],
+    ids=["none", "tuple", "list-of-dicts", "bare-outgoing"],
+)
+def test_handler_that_returns_anything_but_a_list_of_outgoing_gets_an_internal_error_nack(
+    returned: object, returned_type: str
+) -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> Any:
+        return returned
+
+    with JobsBoard().transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert reply.type == "NACK"
+    assert reply.correlation_id == "corr-1"
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert reply.payload.detail == "the command could not be handled"
+    assert isinstance(reply.payload.error, TypeError)
+    assert str(reply.payload.error) == f"handler returned {returned_type}, expected list[Outgoing]"
+
+
+def test_raising_handler_changes_nothing_on_the_board() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        world.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=lambda job: {}))
+        world.remove("main-d001", "BATTERY")
+        raise RuntimeError("bug after the changes")
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+    board.upsert(Job("main-d001", "BATTERY", 5.0, 5.0, render=lambda job: {}))
+    before = board.snapshot()
+
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert board.snapshot() == before
+
+
+def test_handler_with_a_bad_return_value_changes_nothing_on_the_board() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> Any:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        return None
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert board.snapshot()[0]["values"] == {"armed": False}
+
+
+def test_successful_handler_changes_reach_the_board_when_the_transaction_ends() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        job.values["armed"] = True
+        return []
+
+    board = JobsBoard()
+    board.upsert(
+        Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=lambda job: {}, values={"armed": False})
+    )
+
+    with board.transaction() as world:
+        registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert board.snapshot()[0]["values"] == {"armed": True}
+
+
+def test_reply_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        return [Outgoing(command.drone_id, "ACK", command.correlation_id, job.values, True)]
+
+    def count_tick(job: Job, dt: float) -> list[Outgoing]:
+        job.values["n"] += 1
+        return []
+
+    board = JobsBoard()
+    board.upsert(
+        Job(
+            "main-d001",
+            "HEARTBEAT",
+            1.0,
+            100.0,
+            render=lambda job: {},
+            tick=count_tick,
+            values={"n": 0},
+        )
+    )
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+    board.due(now=1.0, dt=0.1)
+    board.due(now=1.1, dt=0.1)
+
+    assert reply.payload == {"n": 0}
+    assert board.snapshot()[0]["values"] == {"n": 2}
+
+
+def test_reply_payload_that_cannot_be_copied_gets_an_internal_error_nack() -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
+        world.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=lambda job: {}))
+        return [Outgoing(command.drone_id, "ACK", None, threading.Lock(), True)]
+
+    board = JobsBoard()
+    with board.transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert isinstance(reply.payload.error, TypeError)
+    assert board.snapshot() == []
