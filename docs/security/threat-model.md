@@ -23,5 +23,5 @@ Skyhaul is a public repository. The main risks are leaked secrets, test evidence
 | Prompt injection | Drone names, alert text, chat | Tool results treated as data; tools run with the user's token; confirmation before moving drones; injection eval cases | M5 | planned |
 | XSS from model output | Chat panel | DOMPurify; never `v-html` on raw text | M5 | planned |
 | API key cost abuse | Demo, CI | PR CI uses the fake LLM; separate demo key with a spend limit; rate limits | M5, M7 | planned |
-| AI PR reviewer abuse | `claude-review.yml` | Runs on `pull_request` only (never `pull_request_target`); fork and Dependabot PRs skipped; contents read-only; tools limited to reading and commenting; PR text treated as data; advisory, not a required check | M0 | done |
+| AI PR reviewer abuse | `claude-review.yml` | Runs only on demand: a `/claude-review` comment from the owner, members or collaborators, or a manual dispatch; the workflow file always comes from `main`, so a PR can't change it; user text passed through `env` and the model name checked against an allowlist; contents read-only; tools limited to reading and commenting; PR text treated as data; advisory, not a required check | M0 | done |
 | Triage agent leaks | Logs to Claude, PR comments | Redact before sending; agent has no tools; fixed code posts with a `pull-requests: write` token | M6 | planned |
