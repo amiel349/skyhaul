@@ -5,11 +5,13 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 from skyhaul_contracts import (
     AlertCode,
     AlertSeverity,
     Codec,
+    DecodeError,
     FlightState,
     Message,
     MessageType,
@@ -107,9 +109,62 @@ def test_16_threads_x_1000_round_trips_on_one_codec_all_equal_and_none_raise() -
     assert not any(t.is_alive() for t in threads), "a worker hung"
     assert raised == []
     assert mismatches == []
-    # The counters are exact only if every update happened under the codec lock.
+    # Exact counters are consistent with locking but do not prove it: under the GIL a lost
+    # update is rare even without a lock. test_encode_decode_and_stats_hold_the_codec_lock
+    # is the proof that the lock is held.
     stats = codec.stats()
     expected: dict[str, Any] = {"decoded": THREADS * ROUND_TRIPS, "encoded": THREADS * ROUND_TRIPS}
     assert {"decoded": stats.decoded, "encoded": stats.encoded} == expected
     assert stats.encode_errors == 0
     assert stats.rejected_by_reason == {}
+
+
+class SpyLock:
+    """A lock that remembers which thread holds it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._owner: int | None = None
+        self.acquisitions = 0
+
+    def __enter__(self) -> SpyLock:
+        self._lock.acquire()
+        self._owner = threading.get_ident()
+        self.acquisitions += 1
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._owner = None
+        self._lock.release()
+
+    def held_by_caller(self) -> bool:
+        return self._owner == threading.get_ident()
+
+
+def test_encode_decode_and_stats_hold_the_codec_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """White-box: swap in a spy lock and check the work runs inside it."""
+    codec = Codec()
+    spy = SpyLock()
+    monkeypatch.setattr(codec, "_lock", spy)
+    held: list[tuple[str, bool]] = []
+    real_decode, real_encode = codec._decode, codec._encode
+
+    def decode(body: bytes) -> Message[BaseModel]:
+        held.append(("decode", spy.held_by_caller()))
+        return real_decode(body)
+
+    def encode(msg: Message[BaseModel]) -> bytes:
+        held.append(("encode", spy.held_by_caller()))
+        return real_encode(msg)
+
+    monkeypatch.setattr(codec, "_decode", decode)
+    monkeypatch.setattr(codec, "_encode", encode)
+    msg = _messages(codec, 0)[0]
+
+    codec.decode(codec.encode(msg))
+    with pytest.raises(DecodeError):
+        codec.decode(b"{")  # the error path counts under the lock too
+    codec.stats()
+
+    assert held == [("encode", True), ("decode", True), ("decode", True), ("decode", True)]
+    assert spy.acquisitions == 4  # encode, decode, failed decode, stats
