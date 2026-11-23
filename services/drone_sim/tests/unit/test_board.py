@@ -638,3 +638,37 @@ def test_due_exactly_on_a_later_slot_schedules_the_slot_after_it() -> None:
     assert len(first) == 1
     assert same_slot == []
     assert only_job(board)["next_due"] == 4.0
+
+
+def test_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=60.0, next_due=60.0))
+
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+
+    assert only_job(board)["period_s"] == 1.0
+    assert only_job(board)["next_due"] == 1.0
+
+
+def test_upsert_with_a_slower_period_keeps_the_earlier_existing_next_due() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+
+    board.upsert(make_job(period_s=60.0, next_due=60.0))
+
+    assert only_job(board)["period_s"] == 60.0
+    assert only_job(board)["next_due"] == 1.0
+    board.due(now=1.0, dt=0.1)
+    assert only_job(board)["next_due"] == 61.0
+
+
+def test_world_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=60.0, next_due=60.0))
+
+    with board.transaction() as world:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        world.upsert(dataclasses.replace(job, period_s=1.0, next_due=1.0))
+
+    assert (only_job(board)["period_s"], only_job(board)["next_due"]) == (1.0, 1.0)

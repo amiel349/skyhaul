@@ -102,12 +102,14 @@ def _copy_job(job: Job) -> Job:
 
 
 def _upsert(jobs: dict[JobKey, _Entry], job: Job) -> None:
-    """Store `job` (the caller passes a private copy), keeping next_due if the key exists."""
+    """Store `job` (the caller passes a private copy). See JobsBoard.upsert for next_due."""
     existing = jobs.get(job.key)
     if existing is None:
         jobs[job.key] = _Entry(job, job.next_due)
-    else:
-        existing.job = job
+        return
+    if job.period_s != existing.job.period_s:
+        existing.next_due = min(existing.next_due, job.next_due)
+    existing.job = job
 
 
 def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
@@ -189,7 +191,7 @@ class World:
         return staged
 
     def upsert(self, job: Job) -> None:
-        """Stage a copy of `job`, replacing any job with the same key but keeping its next_due."""
+        """Stage a copy of `job`. Same next_due rule as JobsBoard.upsert."""
         self._check_open()
         self._staged[job.key] = _copy_job(job)
 
@@ -226,7 +228,13 @@ class JobsBoard:
         self._jobs: dict[JobKey, _Entry] = {}
 
     def upsert(self, job: Job) -> None:
-        """Store a copy of `job`, replacing any job with the same key but keeping its next_due."""
+        """Store a copy of `job`, replacing any job with the same key.
+
+        A new job is first due at `job.next_due`. A replaced job with the same
+        period keeps its next due time, so re-sending a job does not shift it. If
+        the period changed, the earlier of the old next due time and
+        `job.next_due` wins, so a faster rate starts when the caller asked.
+        """
         with self._lock:
             _upsert(self._jobs, _copy_job(job))
 

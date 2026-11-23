@@ -44,19 +44,27 @@ def job_keys(board: JobsBoard) -> list[tuple[str, str]]:
 
 
 def test_one_job_per_drone_and_type_when_32_threads_upsert_at_once() -> None:
+    """Every thread upserts every key with its own period; the earliest next_due must win.
+
+    Each upsert reads the stored job and writes a new one, so without the lock an
+    upsert can be lost and a later next_due can survive.
+    """
     board = JobsBoard()
+    drones = [f"main-d{n:03}" for n in range(100)]
 
-    def upsert(index: int) -> Callable[[], None]:
-        return lambda: board.upsert(
-            make_job("main-d001", "HEARTBEAT", next_due=index, writer=index)
-        )
+    def upsert_all(index: int) -> Callable[[], None]:
+        def work() -> None:
+            for drone_id in drones:
+                period_s = float(index + 1)
+                board.upsert(Job(drone_id, "HEARTBEAT", period_s, period_s, render=lambda job: {}))
 
-    run_together([upsert(index) for index in range(32)])
+        return work
 
-    (job,) = board.snapshot()
-    assert (job["drone_id"], job["type"]) == ("main-d001", "HEARTBEAT")
-    assert job["next_due"] in range(32)
-    assert job["values"]["writer"] in range(32)
+    run_together([upsert_all(index) for index in range(32)])
+
+    jobs = board.snapshot()
+    assert sorted(job_keys(board)) == [(drone_id, "HEARTBEAT") for drone_id in drones]
+    assert {job["drone_id"]: job["next_due"] for job in jobs} == dict.fromkeys(drones, 1.0)
 
 
 def test_one_job_per_drone_and_type_when_32_threads_create_it_if_missing() -> None:
@@ -84,31 +92,11 @@ def test_one_job_per_drone_and_type_when_32_threads_create_it_if_missing() -> No
 
 
 def test_at_most_one_job_per_drone_and_type_after_16_threads_of_1000_upserts_and_removes() -> None:
-    board = JobsBoard()
-    drones = [f"main-d00{n}" for n in range(1, 5)]
-    types = ["HEARTBEAT", "BATTERY", "POSITION"]
+    """16 threads x 1,000 random upserts and removes while the scheduler ticks the board.
 
-    def churn(seed: int) -> Callable[[], None]:
-        def work() -> None:
-            rng = random.Random(seed)  # noqa: S311 - seeded test data, not security
-            for _ in range(1000):
-                drone_id, type = rng.choice(drones), rng.choice(types)
-                if rng.random() < 0.6:
-                    board.upsert(make_job(drone_id, type, writer=seed))
-                else:
-                    board.remove(drone_id, type)
-
-        return work
-
-    run_together([churn(seed) for seed in range(16)])
-
-    keys = job_keys(board)
-    assert len(keys) == len(set(keys))
-    assert set(keys) <= {(drone_id, type) for drone_id in drones for type in types}
-
-
-def test_due_keeps_running_while_16_threads_run_1000_upserts_and_removes() -> None:
-    """Scheduler ticks iterate the board while commands add and remove jobs."""
+    Without the lock on upsert or remove, `due()` fails with "dictionary changed
+    size during iteration".
+    """
     board = JobsBoard()
     drones = [f"main-d{n:03}" for n in range(50)]
     types = ["HEARTBEAT", "BATTERY", "POSITION"]
