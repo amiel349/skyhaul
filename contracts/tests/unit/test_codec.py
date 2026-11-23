@@ -205,6 +205,87 @@ def test_bytes_that_are_not_a_json_object_are_malformed(body: bytes, reason: str
     assert exc.value.reason == reason
 
 
+def test_top_level_array_nested_9998_deep_is_malformed_not_a_crash() -> None:
+    codec = Codec()
+    body = b"[" * 9998 + b"]" * 9998  # 20 KB, under the size limit
+
+    with pytest.raises(MalformedMessage) as exc:
+        codec.decode(body)
+
+    assert exc.value.reason == "not_json"
+    assert codec.stats().rejected_by_reason == {"not_json": 1}
+
+
+def test_payload_nested_10000_deep_is_malformed_not_a_crash() -> None:
+    codec = Codec()
+    body = _bytes(_doc())[:-2] + b'"x": ' + b"[" * 10_000 + b"]" * 10_000 + b"}}"
+
+    with pytest.raises(MalformedMessage) as exc:
+        codec.decode(body)
+
+    assert exc.value.reason == "not_json"
+    assert codec.stats().rejected_by_reason == {"not_json": 1}
+
+
+@pytest.mark.parametrize("number", ["1e400", "-1e400", "1.5e999"])
+@pytest.mark.parametrize("where", ["unknown-field", "known-field"])
+def test_number_that_overflows_to_infinity_is_rejected_anywhere(number: str, where: str) -> None:
+    if where == "unknown-field":
+        text = json.dumps(_doc("POSITION", _position(extra="N")))
+    else:
+        text = json.dumps(_doc("POSITION", _position(lat="N")))
+    body = text.replace('"N"', number).encode()
+
+    with pytest.raises(MalformedMessage) as exc:
+        Codec().decode(body)
+    assert exc.value.reason == "not_json"
+
+
+@pytest.mark.parametrize("where", ["unknown-field", "known-field", "key"])
+def test_lone_surrogate_is_rejected_so_every_decoded_string_can_be_re_encoded(where: str) -> None:
+    payload = {
+        "unknown-field": {"command_msg_id": CMD_ID, "command_type": "ARM", "reason": "INJECTED",
+                          "detail": "ok", "note": "S"},
+        "known-field": {"command_msg_id": CMD_ID, "command_type": "ARM", "reason": "INJECTED",
+                        "detail": "S"},
+        "key": {"command_msg_id": CMD_ID, "command_type": "ARM", "reason": "INJECTED",
+                "detail": "ok", "S": 1},
+    }[where]  # fmt: skip
+    body = json.dumps(_doc("NACK", payload)).replace('"S"', '"\\ud800"').encode()
+    assert b"\\ud800" in body
+
+    with pytest.raises(MalformedMessage) as exc:
+        Codec().decode(body)
+    assert exc.value.reason == "not_json"
+
+
+def test_surrogate_pair_escape_is_a_normal_character_and_round_trips() -> None:
+    codec = Codec()
+    alert = {"code": "LOW_BATTERY", "severity": "WARNING", "message": "S", "value": None}
+    body = json.dumps(_doc("ALERT", alert)).replace('"S"', '"\\ud83d\\ude81 low"').encode()
+
+    msg = codec.decode(body)
+
+    assert msg.payload.message == "\U0001f681 low"  # type: ignore[attr-defined]
+    assert codec.decode(codec.encode(msg)) == msg
+
+
+@pytest.mark.parametrize(
+    "body", ["{}", None, 42, ["not", "bytes"]], ids=["str", "none", "int", "list"]
+)
+def test_input_that_is_not_bytes_is_malformed(body: Any) -> None:
+    codec = Codec()
+    with pytest.raises(MalformedMessage) as exc:
+        codec.decode(body)
+    assert exc.value.reason == "not_bytes"
+    assert codec.stats().rejected_by_reason == {"not_bytes": 1}
+
+
+@pytest.mark.parametrize("wrap", [bytes, bytearray, memoryview])
+def test_bytes_like_input_is_accepted(wrap: Any) -> None:
+    assert Codec().decode(wrap(_bytes(_doc()))).type == MessageType.ARM
+
+
 def test_message_over_size_limit_is_rejected_before_parsing() -> None:
     # Invalid UTF-8 and invalid JSON: if it were parsed, the reason would differ.
     with pytest.raises(MalformedMessage) as exc:

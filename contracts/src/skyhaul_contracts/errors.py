@@ -11,7 +11,9 @@ from typing import Literal
 
 from skyhaul_contracts.v1 import Envelope
 
-MalformedReason = Literal["too_large", "not_utf8", "not_json", "not_object", "invalid_envelope"]
+MalformedReason = Literal[
+    "not_bytes", "too_large", "not_utf8", "not_json", "not_object", "invalid_envelope"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +43,8 @@ class DecodeError(CodecError):
 
 
 class MalformedMessage(DecodeError):
-    """No trustworthy envelope: too large, not UTF-8, not JSON, or an invalid envelope.
+    """No trustworthy envelope: not bytes, too large, not UTF-8, not JSON, or an invalid
+    envelope.
 
     Consumers reject it without requeue (dead letter). There is nobody to NACK."""
 

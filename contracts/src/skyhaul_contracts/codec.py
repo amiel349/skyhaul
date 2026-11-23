@@ -12,6 +12,8 @@ codec while holding another lock (simulator invariant 8 in docs/architecture/m1-
 from __future__ import annotations
 
 import json
+import math
+import re
 import threading
 import uuid
 from collections import Counter
@@ -69,6 +71,67 @@ class CodecStats:
 
 def _reject_constant(name: str) -> NoReturn:
     raise ValueError(f"{name} is not valid JSON")
+
+
+def _finite_float(text: str) -> float:
+    """``parse_float`` hook: ``1e400`` would otherwise become infinity, anywhere in the body."""
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("number out of range")
+    return value
+
+
+# A lone surrogate can only come from a \uD800-\uDFFF escape: strict UTF-8 decoding already
+# rejects encoded ones. Cheap pre-check on the text, then an exact check on the parsed strings.
+_SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F]")
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _has_lone_surrogate(obj: Any) -> bool:
+    """Iterative, so a deeply nested body cannot overflow the stack here."""
+    stack = [obj]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            if _SURROGATE.search(item):
+                return True
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
+def parse_json(body: bytes | bytearray | memoryview) -> Any:
+    """Strict JSON for message bodies. Raises ``MalformedMessage``.
+
+    Beyond RFC 8259: no NaN/Infinity tokens, no number that overflows to infinity, no
+    duplicate keys, and no lone surrogate (I-JSON, RFC 7493), so every string we accept can
+    be encoded as UTF-8 again. Nesting deeper than the parser's recursion limit is
+    ``not_json``, not a ``RecursionError``.
+    """
+    if not isinstance(body, bytes | bytearray | memoryview):
+        raise MalformedMessage("not_bytes")
+    view = memoryview(body)
+    if view.nbytes > MAX_MESSAGE_BYTES:
+        raise MalformedMessage("too_large")
+    try:
+        text = view.tobytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise MalformedMessage("not_utf8") from None
+    try:
+        obj = json.loads(
+            text,
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
+            object_pairs_hook=_no_duplicate_keys,
+        )
+    except (ValueError, RecursionError):  # bad syntax, NaN, overflow, duplicates, depth
+        raise MalformedMessage("not_json") from None
+    if _SURROGATE_ESCAPE.search(text) and _has_lone_surrogate(obj):
+        raise MalformedMessage("not_json")
+    return obj
 
 
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -137,7 +200,8 @@ class Codec:
     # -- public API ------------------------------------------------------------------------
 
     def decode(self, body: bytes) -> Message[BaseModel]:
-        """Bytes from the wire to a validated message. Raises a ``DecodeError`` subclass."""
+        """Bytes from the wire to a validated message. Raises a ``DecodeError`` subclass for
+        any input, including non-bytes (``not_bytes``)."""
         with self._lock:
             try:
                 msg = self._decode(body)
@@ -217,18 +281,7 @@ class Codec:
     # -- internals (caller holds self._lock) ----------------------------------------------
 
     def _decode(self, body: bytes) -> Message[BaseModel]:
-        if len(body) > MAX_MESSAGE_BYTES:
-            raise MalformedMessage("too_large")
-        try:
-            text = bytes(body).decode("utf-8")
-        except UnicodeDecodeError:
-            raise MalformedMessage("not_utf8") from None
-        try:
-            obj = json.loads(
-                text, parse_constant=_reject_constant, object_pairs_hook=_no_duplicate_keys
-            )
-        except ValueError:  # JSONDecodeError, NaN/Infinity, duplicate keys
-            raise MalformedMessage("not_json") from None
+        obj = parse_json(body)
         if not isinstance(obj, dict):
             raise MalformedMessage("not_object")
 

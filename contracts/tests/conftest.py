@@ -8,6 +8,7 @@ parametrized over the golden files by ``pytest_generate_tests``.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,9 +32,37 @@ def _reject_constant(name: str) -> NoReturn:
     raise ValueError(f"{name} is not JSON")
 
 
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("number overflows to infinity")
+    return value
+
+
+def _lone_surrogate(obj: Any) -> bool:
+    stack = [obj]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str) and any("\ud800" <= c <= "\udfff" for c in item):
+            return True
+        if isinstance(item, dict):
+            stack += [*item.keys(), *item.values()]
+        elif isinstance(item, list):
+            stack += item
+    return False
+
+
 def _strict_json(text: str) -> Any:
-    """json.loads that refuses NaN and Infinity, as RFC 8259 does."""
-    return json.loads(text, parse_constant=_reject_constant)
+    """The wire's JSON rules, written independently of the Codec: RFC 8259 without NaN or
+    Infinity, no number that overflows to infinity, no lone surrogates (I-JSON, RFC 7493).
+    Raises ValueError."""
+    try:
+        obj = json.loads(text, parse_constant=_reject_constant, parse_float=_finite)
+    except RecursionError:
+        raise ValueError("nested too deep") from None
+    if _lone_surrogate(obj):
+        raise ValueError("lone surrogate")
+    return obj
 
 
 def _payload_schema_path(type_: str) -> Path:
