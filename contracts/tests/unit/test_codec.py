@@ -12,6 +12,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from skyhaul_contracts import (
     MAX_MESSAGE_BYTES,
+    NACK_DETAIL_MAX_LENGTH,
     Codec,
     CommandType,
     DecodeError,
@@ -139,6 +140,30 @@ def test_unsupported_version_raises_with_msg_id_drone_id_type_correlation_id(
         "TAKEOFF",
         CORR,
     )
+
+
+def test_unsupported_version_does_not_echo_the_version() -> None:
+    huge = int("9" * 4000)  # json.loads accepts up to 4300 digits
+    with pytest.raises(UnsupportedVersion) as exc:
+        Codec().decode(_bytes(_doc(schema_version=huge)))
+
+    assert exc.value.version == huge
+    assert "9999" not in str(exc.value)
+    assert "9999" not in exc.value.detail
+
+
+def test_decode_error_detail_never_exceeds_the_nack_detail_limit() -> None:
+    err = DecodeError("invalid_payload", "invalid START_MISSION payload", ("x" * 100,) * 5)
+
+    assert len(err.detail) == NACK_DETAIL_MAX_LENGTH
+    assert err.detail.endswith("\u2026")
+
+
+def test_decode_error_detail_lists_the_problems() -> None:
+    with pytest.raises(InvalidPayload) as exc:
+        Codec().decode(_bytes(_doc("TAKEOFF", {"altitude_m": 500})))
+
+    assert exc.value.detail == "invalid TAKEOFF payload: altitude_m: less_than_equal"
 
 
 def test_unsupported_version_hint_leaves_unreadable_fields_empty() -> None:

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from skyhaul_contracts import Codec, DecodeError
+from skyhaul_contracts import NACK_DETAIL_MAX_LENGTH, Codec, DecodeError, NackReason
+from skyhaul_contracts.v1 import NackPayload
 
 
 def test_valid_example_passes_jsonschema_and_codec(
@@ -45,3 +46,23 @@ def test_examples_are_named_by_type_folder(paths: Any, catalogue: Any) -> None:
     assert folders == set(catalogue[0] + catalogue[1])
     for path in paths.examples.glob("*/valid/*.json"):
         assert json.loads(path.read_text())["type"] == path.parent.parent.name, path
+
+
+def test_every_decode_error_gives_a_detail_a_nack_can_carry(
+    invalid_example: Path, paths: Any
+) -> None:
+    with pytest.raises(DecodeError) as exc:
+        Codec().decode(invalid_example.read_bytes())
+
+    nack = NackPayload(
+        command_msg_id="7a1c3e5f-2b4d-4c6e-8f10-000000000001",
+        command_type="",
+        reason=NackReason.INVALID_PAYLOAD,
+        detail=exc.value.detail,
+    )
+    assert len(nack.detail) <= NACK_DETAIL_MAX_LENGTH
+
+
+def test_nack_detail_limit_matches_the_schema(paths: Any) -> None:
+    nack = json.loads((paths.schemas / "telemetry" / "nack.schema.json").read_text())
+    assert nack["properties"]["detail"]["maxLength"] == NACK_DETAIL_MAX_LENGTH

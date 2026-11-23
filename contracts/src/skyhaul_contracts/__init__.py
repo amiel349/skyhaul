@@ -6,6 +6,7 @@ Schemas live in ``contracts/schemas/``; payload models are generated into
 
 from skyhaul_contracts.codec import MAX_MESSAGE_BYTES, Codec, CodecStats
 from skyhaul_contracts.errors import (
+    NACK_DETAIL_MAX_LENGTH,
     CodecError,
     DecodeError,
     EncodeError,
@@ -32,6 +33,7 @@ from skyhaul_contracts.types import (
 __all__ = [
     "CURRENT_VERSION",
     "MAX_MESSAGE_BYTES",
+    "NACK_DETAIL_MAX_LENGTH",
     "SUPPORTED_VERSIONS",
     "AlertCode",
     "AlertSeverity",
