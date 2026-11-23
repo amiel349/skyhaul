@@ -1,5 +1,5 @@
 # Build from the repo root: docker build -f services/api/Dockerfile .
-FROM python:3.12-slim AS build
+FROM python:3.15-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /src
@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY services/api ./services/api
 RUN uv sync --frozen --no-dev --package skyhaul-api --no-editable
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 RUN useradd --create-home --uid 10001 app
 COPY --from=build /src/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
