@@ -21,14 +21,17 @@ from skyhaul_contracts import (
     MalformedMessage,
     Message,
     MessageType,
+    NackReason,
     UnknownType,
     UnsupportedVersion,
 )
 from skyhaul_contracts.v1 import (
     AckPayload,
+    AlertPayload,
     ArmPayload,
     GeoPoint,
     GotoPayload,
+    NackPayload,
     PositionPayload,
     TakeoffPayload,
 )
@@ -430,6 +433,40 @@ def test_encode_refuses_an_invalid_message(update: dict[str, Any]) -> None:
     with pytest.raises(EncodeError):
         codec.encode(msg)
     assert (codec.stats().encoded, codec.stats().encode_errors) == (0, 1)
+
+
+def test_encode_refuses_a_body_over_the_size_limit() -> None:
+    codec = Codec()
+    nack = NackPayload(
+        command_msg_id=CMD_ID, command_type="ARM", reason=NackReason.INJECTED, detail="x"
+    )
+    huge = NackPayload.model_construct(**(nack.model_dump() | {"detail": "x" * MAX_MESSAGE_BYTES}))
+    msg = codec.new(MessageType.NACK, DRONE, nack, CORR).model_copy(update={"payload": huge})
+
+    with pytest.raises(EncodeError) as exc:
+        codec.encode(msg)
+    assert exc.value.errors == ("<root>: too_large",)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+@pytest.mark.parametrize(
+    ("model", "field", "base"),
+    [
+        (PositionPayload, "lat", _position()),
+        (GeoPoint, "lon", {"lat": 1.0, "lon": 2.0}),
+        (AlertPayload, "value", {"code": "LOW_BATTERY", "severity": "WARNING", "message": "m",
+                                 "value": 1.0}),
+    ],
+    ids=["position-lat", "geopoint-lon", "alert-value"],
+)  # fmt: skip
+def test_models_refuse_non_finite_numbers_on_construction(
+    model: type[BaseModel], field: str, base: dict[str, Any], value: float
+) -> None:
+    """allow_inf_nan=False on ContractModel, on its own: the error is finite_number, not a
+    range error that would only catch some values by accident."""
+    with pytest.raises(ValidationError) as exc:
+        model(**(base | {field: value}))
+    assert [e["type"] for e in exc.value.errors()] == ["finite_number"]
 
 
 def test_encode_refuses_something_that_is_not_a_message() -> None:

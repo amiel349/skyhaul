@@ -13,9 +13,15 @@ class MissionStatusPayload(ContractModel):
     state: common_schema.MissionState
     waypoint_index: Annotated[
         StrictInt,
-        Field(description="Zero-based index of the waypoint being flown to.", ge=0, le=50),
+        Field(
+            description="Zero-based index of the waypoint being flown to: a count of waypoints already reached.",
+            ge=0,
+            le=50,
+        ),
     ]
-    waypoints_total: Annotated[StrictInt, Field(ge=1, le=50)]
+    waypoints_total: Annotated[
+        StrictInt, Field(description="Number of waypoints in the mission: a count.", ge=1, le=50)
+    ]
     progress_pct: Annotated[
         common_schema.Percent, Field(description="Mission progress in percent.")
     ]

@@ -212,3 +212,49 @@ def test_unknown_payload_field_nested_deep_is_ignored_by_both_validators(
     assert schemas.errors(strict_json(text)) == []
     msg = Codec().decode(text.encode())
     assert "deep" not in msg.payload.model_dump()
+
+
+UNIT_SUFFIXES = ("_m", "_mps", "_pct", "_deg", "_s")
+UNIT_WORDS = ("degrees", "meters", "percent", "seconds", "a count")
+
+
+def test_every_numeric_field_has_a_unit_in_its_name_or_description(paths: Any) -> None:
+    common = _common(paths)["$defs"]
+    problems: list[str] = []
+    for path in sorted(paths.schemas.rglob("*.schema.json")):
+        for node in _object_nodes(json.loads(path.read_text())):
+            for name, prop in node.get("properties", {}).items():
+                target = common[prop["$ref"].rsplit("/", 1)[1]] if "$ref" in prop else {}
+                declared = prop.get("type", target.get("type"))
+                types = declared if isinstance(declared, list) else [declared]
+                if not {"number", "integer"} & set(types) or "const" in prop:
+                    continue
+                text = f"{prop.get('description', '')} {target.get('description', '')}".lower()
+                if not name.endswith(UNIT_SUFFIXES) and not any(w in text for w in UNIT_WORDS):
+                    problems.append(f"{path.name}: {name}")
+    assert problems == []
+
+
+def test_every_ref_is_relative_and_resolves_inside_the_schema_folder(paths: Any) -> None:
+    def refs(node: Any) -> list[str]:
+        if isinstance(node, dict):
+            own = [node["$ref"]] if isinstance(node.get("$ref"), str) else []
+            return own + [r for value in node.values() for r in refs(value)]
+        if isinstance(node, list):
+            return [r for value in node for r in refs(value)]
+        return []
+
+    root = paths.schemas.resolve()
+    for path in sorted(paths.schemas.rglob("*.schema.json")):
+        schema = json.loads(path.read_text())
+        assert "$id" not in schema, path.name  # nothing may change the base URI
+        for ref in refs(schema):
+            target, _, pointer = ref.partition("#")
+            assert ":" not in target, f"{path.name}: {ref}"  # no scheme, so never fetched
+            assert not target.startswith("/"), f"{path.name}: {ref}"
+            file = (path.parent / target).resolve() if target else path.resolve()
+            assert file.is_relative_to(root), f"{path.name}: {ref}"
+            assert file.is_file(), f"{path.name}: {ref}"
+            node: Any = json.loads(file.read_text())
+            for part in pointer.strip("/").split("/") if pointer else []:
+                node = node[part]  # KeyError if the pointer does not resolve

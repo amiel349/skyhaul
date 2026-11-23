@@ -9,9 +9,12 @@ export interface MissionStatusPayload {
   mission_id: string;
   state: MissionState;
   /**
-   * Zero-based index of the waypoint being flown to.
+   * Zero-based index of the waypoint being flown to: a count of waypoints already reached.
    */
   waypoint_index: number;
+  /**
+   * Number of waypoints in the mission: a count.
+   */
   waypoints_total: number;
   /**
    * Mission progress in percent.

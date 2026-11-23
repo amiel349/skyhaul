@@ -18,12 +18,13 @@
       "$ref": "../common.schema.json#/$defs/MissionState"
     },
     "waypoint_index": {
-      "description": "Zero-based index of the waypoint being flown to.",
+      "description": "Zero-based index of the waypoint being flown to: a count of waypoints already reached.",
       "type": "integer",
       "minimum": 0,
       "maximum": 50
     },
     "waypoints_total": {
+      "description": "Number of waypoints in the mission: a count.",
       "type": "integer",
       "minimum": 1,
       "maximum": 50
