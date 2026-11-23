@@ -1,6 +1,6 @@
 # 0003 · Simulator threading model
 
-Status: accepted · 2026-11-23
+Status: accepted · 2026-11-23 · amended 2026-11-23
 
 ## Context
 
@@ -31,3 +31,12 @@ A fourth thread serves the HTTP control API (spawn, faults, reset). It changes s
 ## Alternatives considered
 
 - asyncio: a good fit for the I/O, and a natural follow-up. Threads were kept to match the original design being improved on, and because the logic is easy to reason about with one lock.
+
+## Amendment · 2026-11-23 · scheduler timing and failure isolation
+
+Settled while building the jobs board (#7); details in `docs/architecture/m1-design.md` section 5.
+
+- **Due times stay on the period grid.** After a job emits, `next_due += period`; if that is still `<= now` (a stall of a whole period or more), `next_due = now + period`. Using `now + period` every time adds each tick's wake-up delay to the period, so a 1 s heartbeat averaged 1.05 to 1.1 s on a real clock. After a stall the job still emits exactly once, with no catch-up burst.
+- **No rollback for handlers.** A handler that raises after changing the board keeps its changes. Handlers therefore check every precondition before they mutate anything. The consumer logs the traceback after the board transaction, sends NACK `INTERNAL_ERROR` and acks.
+- **A raising job is isolated.** If a job's `tick` or `render` raises, the scheduler skips that job for this tick and goes on with the others. It logs the error after releasing the board lock, so one faulty job never stops other drones' telemetry.
+- The control API thread is the fourth long-lived thread mentioned above. The count stays four regardless of how many drones exist.
