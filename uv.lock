@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "skyhaul",
     "skyhaul-api",
+    "skyhaul-drone-sim",
 ]
 
 [[package]]
@@ -1089,6 +1090,7 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "skyhaul-api" },
+    { name = "skyhaul-drone-sim" },
 ]
 
 [package.dev-dependencies]
@@ -1101,7 +1103,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "skyhaul-api", editable = "services/api" }]
+requires-dist = [
+    { name = "skyhaul-api", editable = "services/api" },
+    { name = "skyhaul-drone-sim", editable = "services/drone_sim" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1126,6 +1131,11 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1" },
     { name = "gunicorn", specifier = ">=23.0" },
 ]
+
+[[package]]
+name = "skyhaul-drone-sim"
+version = "0.0.0"
+source = { editable = "services/drone_sim" }
 
 [[package]]
 name = "sortedcontainers"
