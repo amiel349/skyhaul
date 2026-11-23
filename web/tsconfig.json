@@ -3,7 +3,15 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@skyhaul/contracts": ["../contracts/ts/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "../contracts/ts/**/*.ts",
+    "../contracts/tests/ts/**/*.ts"
+  ]
 }

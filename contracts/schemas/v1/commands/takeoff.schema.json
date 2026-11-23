@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TakeoffPayload",
+  "description": "TAKEOFF: climb to altitude_m and hover. Allowed when ARMED.",
+  "type": "object",
+  "required": [
+    "altitude_m"
+  ],
+  "properties": {
+    "altitude_m": {
+      "$ref": "../common.schema.json#/$defs/AltitudeM"
+    }
+  }
+}

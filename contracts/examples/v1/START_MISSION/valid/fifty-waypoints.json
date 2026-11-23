@@ -1,0 +1,263 @@
+{
+  "msg_id": "7a1c3e5f-2b4d-4c6e-8f10-00000000000c",
+  "correlation_id": "5c2d7e9a-8b31-4f60-a1d4-6e7f8091a2b3",
+  "drone_id": "gw0-d001",
+  "type": "START_MISSION",
+  "schema_version": 1,
+  "ts": "2026-11-23T10:00:00.123Z",
+  "payload": {
+    "mission_id": "long",
+    "waypoints": [
+      {
+        "lat": 52.0,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.001,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.002,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.003,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.004,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.005,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.006,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.007,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.008,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.009,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.01,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.011,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.012,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.013,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.014,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.015,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.016,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.017,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.018,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.019,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.02,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.021,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.022,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.023,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.024,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.025,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.026,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.027,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.028,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.029,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.03,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.031,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.032,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.033,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.034,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.035,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.036,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.037,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.038,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.039,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.04,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.041,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.042,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.043,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.044,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.045,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.046,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.047,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.048,
+        "lon": 21.0,
+        "altitude_m": 50
+      },
+      {
+        "lat": 52.049,
+        "lon": 21.0,
+        "altitude_m": 50
+      }
+    ]
+  }
+}

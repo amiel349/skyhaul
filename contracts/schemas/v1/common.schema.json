@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Common",
+  "description": "Shared definitions for Skyhaul drone messages, schema_version 1. Units are in the names: _m meters, _mps meters per second, _pct percent, _deg degrees, _s seconds.",
+  "$defs": {
+    "Uuid": {
+      "title": "Uuid",
+      "description": "Canonical lowercase UUID string, any version.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "DroneId": {
+      "title": "DroneId",
+      "description": "Lowercase letters, digits and dashes. No '.', '*' or '#', so it is always one safe routing-key word.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "Timestamp": {
+      "title": "Timestamp",
+      "description": "RFC 3339 UTC timestamp with exactly millisecond precision and a 'Z' suffix, e.g. 2026-11-23T10:00:00.123Z. Producer wall clock.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "TypeName": {
+      "title": "TypeName",
+      "description": "Wire form of a message type: uppercase letters, digits and underscores. Whether the type is known is decided by the catalogue (MessageType), not by the envelope, so an unknown type can still be answered with a NACK.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+    },
+    "MessageType": {
+      "title": "MessageType",
+      "description": "Every message type in schema_version 1: the union of CommandType and TelemetryType.",
+      "type": "string",
+      "enum": [
+        "ARM",
+        "TAKEOFF",
+        "GOTO",
+        "RETURN_HOME",
+        "LAND",
+        "SET_SPEED",
+        "START_MISSION",
+        "ACK",
+        "NACK",
+        "HEARTBEAT",
+        "BATTERY",
+        "POSITION",
+        "MISSION_STATUS",
+        "ALERT"
+      ]
+    },
+    "CommandType": {
+      "title": "CommandType",
+      "description": "Messages sent to a drone on the fleet.cmd exchange.",
+      "type": "string",
+      "enum": ["ARM", "TAKEOFF", "GOTO", "RETURN_HOME", "LAND", "SET_SPEED", "START_MISSION"]
+    },
+    "TelemetryType": {
+      "title": "TelemetryType",
+      "description": "Messages sent by a drone on the fleet.telemetry exchange.",
+      "type": "string",
+      "enum": ["ACK", "NACK", "HEARTBEAT", "BATTERY", "POSITION", "MISSION_STATUS", "ALERT"]
+    },
+    "FlightState": {
+      "title": "FlightState",
+      "type": "string",
+      "enum": ["LANDED", "ARMED", "TAKING_OFF", "HOVERING", "FLYING", "RETURNING", "LANDING"]
+    },
+    "NackReason": {
+      "title": "NackReason",
+      "description": "Why a command was rejected. INJECTED comes from a test fault, INTERNAL_ERROR from a handler that raised.",
+      "type": "string",
+      "enum": [
+        "UNKNOWN_TYPE",
+        "UNSUPPORTED_VERSION",
+        "INVALID_PAYLOAD",
+        "INVALID_STATE",
+        "MISSION_ACTIVE",
+        "BATTERY_TOO_LOW",
+        "OUT_OF_BOUNDS",
+        "INJECTED",
+        "INTERNAL_ERROR"
+      ]
+    },
+    "AlertCode": {
+      "title": "AlertCode",
+      "type": "string",
+      "enum": ["LOW_BATTERY", "CRITICAL_BATTERY", "GEOFENCE_BREACH", "LINK_RESTORED"]
+    },
+    "AlertSeverity": {
+      "title": "AlertSeverity",
+      "type": "string",
+      "enum": ["INFO", "WARNING", "CRITICAL"]
+    },
+    "MissionState": {
+      "title": "MissionState",
+      "type": "string",
+      "enum": ["ACTIVE", "COMPLETED", "ABORTED"]
+    },
+    "MissionId": {
+      "title": "MissionId",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "Lat": {
+      "title": "Lat",
+      "description": "Latitude in degrees, WGS84.",
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "Lon": {
+      "title": "Lon",
+      "description": "Longitude in degrees, WGS84. 180 is written as -180.",
+      "type": "number",
+      "minimum": -180,
+      "exclusiveMaximum": 180
+    },
+    "AltitudeM": {
+      "title": "AltitudeM",
+      "description": "Commanded altitude in meters above the home point (AGL).",
+      "type": "number",
+      "minimum": 5,
+      "maximum": 120
+    },
+    "SpeedMps": {
+      "title": "SpeedMps",
+      "description": "Commanded horizontal speed in meters per second.",
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 20
+    },
+    "HeadingDeg": {
+      "title": "HeadingDeg",
+      "description": "Heading in degrees true, clockwise from north.",
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMaximum": 360
+    },
+    "Percent": {
+      "title": "Percent",
+      "description": "A percentage from 0 to 100.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "DurationS": {
+      "title": "DurationS",
+      "description": "A whole number of seconds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "GeoPoint": {
+      "title": "GeoPoint",
+      "description": "A horizontal position.",
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "$ref": "#/$defs/Lat" },
+        "lon": { "$ref": "#/$defs/Lon" }
+      }
+    },
+    "Waypoint": {
+      "title": "Waypoint",
+      "description": "A mission waypoint.",
+      "type": "object",
+      "required": ["lat", "lon", "altitude_m"],
+      "properties": {
+        "lat": { "$ref": "#/$defs/Lat" },
+        "lon": { "$ref": "#/$defs/Lon" },
+        "altitude_m": { "$ref": "#/$defs/AltitudeM" }
+      }
+    }
+  }
+}

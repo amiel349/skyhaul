@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AckPayload",
+  "description": "ACK: the command was accepted (not completed). Completion shows up in telemetry.",
+  "type": "object",
+  "required": [
+    "command_msg_id",
+    "command_type"
+  ],
+  "properties": {
+    "command_msg_id": {
+      "description": "msg_id of the command being answered.",
+      "$ref": "../common.schema.json#/$defs/Uuid"
+    },
+    "command_type": {
+      "$ref": "../common.schema.json#/$defs/CommandType"
+    }
+  }
+}

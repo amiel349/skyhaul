@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GotoPayload",
+  "description": "GOTO: fly to a point and hover there. Allowed when airborne with no active mission.",
+  "type": "object",
+  "required": [
+    "lat",
+    "lon",
+    "altitude_m"
+  ],
+  "properties": {
+    "lat": {
+      "$ref": "../common.schema.json#/$defs/Lat"
+    },
+    "lon": {
+      "$ref": "../common.schema.json#/$defs/Lon"
+    },
+    "altitude_m": {
+      "$ref": "../common.schema.json#/$defs/AltitudeM"
+    },
+    "speed_mps": {
+      "description": "Optional speed for this leg; defaults to the cruise speed.",
+      "$ref": "../common.schema.json#/$defs/SpeedMps"
+    }
+  }
+}

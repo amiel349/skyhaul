@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Envelope",
+  "description": "Every Skyhaul drone message, schema_version 1. The envelope is closed: no other top-level fields. The payload is validated against the schema for its type.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["msg_id", "correlation_id", "drone_id", "type", "schema_version", "ts", "payload"],
+  "properties": {
+    "msg_id": {
+      "description": "Fresh UUID for every message.",
+      "$ref": "common.schema.json#/$defs/Uuid"
+    },
+    "correlation_id": {
+      "description": "Commands: set by the sender. Replies and command-driven telemetry: copied from the command. Drone-initiated telemetry and ALERT: null.",
+      "anyOf": [{ "$ref": "common.schema.json#/$defs/Uuid" }, { "type": "null" }]
+    },
+    "drone_id": { "$ref": "common.schema.json#/$defs/DroneId" },
+    "type": { "$ref": "common.schema.json#/$defs/TypeName" },
+    "schema_version": {
+      "description": "Version of the whole contract set.",
+      "type": "integer",
+      "const": 1
+    },
+    "ts": { "$ref": "common.schema.json#/$defs/Timestamp" },
+    "payload": {
+      "description": "Type-specific body. Payloads are tolerant readers: unknown fields are ignored.",
+      "type": "object"
+    }
+  }
+}

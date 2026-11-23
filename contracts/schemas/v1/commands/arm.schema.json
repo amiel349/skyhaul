@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ArmPayload",
+  "description": "ARM: arm the motors. Allowed when LANDED with battery at 15% or more. No fields. Unknown fields are ignored (tolerant reader).",
+  "type": "object",
+  "required": [],
+  "properties": {}
+}

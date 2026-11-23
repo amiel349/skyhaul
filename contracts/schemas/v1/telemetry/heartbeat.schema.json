@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeartbeatPayload",
+  "description": "HEARTBEAT: drone-initiated, every 1 s from spawn.",
+  "type": "object",
+  "required": [
+    "flight_state",
+    "armed",
+    "uptime_s"
+  ],
+  "properties": {
+    "flight_state": {
+      "$ref": "../common.schema.json#/$defs/FlightState"
+    },
+    "armed": {
+      "type": "boolean"
+    },
+    "uptime_s": {
+      "description": "Seconds since the drone was spawned.",
+      "$ref": "../common.schema.json#/$defs/DurationS"
+    }
+  }
+}

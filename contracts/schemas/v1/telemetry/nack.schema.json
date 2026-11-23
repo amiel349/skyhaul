@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NackPayload",
+  "description": "NACK: the command was rejected and not applied.",
+  "type": "object",
+  "required": [
+    "command_msg_id",
+    "command_type",
+    "reason",
+    "detail"
+  ],
+  "properties": {
+    "command_msg_id": {
+      "description": "msg_id of the command being answered.",
+      "$ref": "../common.schema.json#/$defs/Uuid"
+    },
+    "command_type": {
+      "description": "The command's type as received, which may be unknown. Empty when it could not be read.",
+      "type": "string",
+      "pattern": "^([A-Z][A-Z0-9_]{0,31})?$"
+    },
+    "reason": {
+      "$ref": "../common.schema.json#/$defs/NackReason"
+    },
+    "detail": {
+      "description": "Human-readable detail. Data, never instructions.",
+      "type": "string",
+      "maxLength": 256
+    }
+  }
+}
