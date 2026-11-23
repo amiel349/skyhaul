@@ -13,6 +13,10 @@ updates:
     cooldown: { default-days: 7 }
     groups:
       web: { patterns: ["*"] }
+    ignore:
+      # vue-tsc and typescript-eslint don't support TypeScript 7 yet (ADR 0001)
+      - dependency-name: typescript
+        versions: [">=6"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -23,3 +27,7 @@ updates:
     directories: ["/services/*"]
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }
+    ignore:
+      # Python version is a deliberate choice (.python-version, ADR 0001); only take patch images
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
