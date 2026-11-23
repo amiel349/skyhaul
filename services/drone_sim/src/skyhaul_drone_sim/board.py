@@ -140,9 +140,12 @@ class JobsBoard:
     def due(self, now: float, dt: float) -> list[Outgoing]:
         """Run every job's tick, then emit each job that is due.
 
-        A job is emitted at most once per call, when `now >= next_due`, and then
-        `next_due = now + period_s`. So after a stall it is emitted once, with no
-        catch-up burst. `dt` is capped at MAX_TICK_DT_S.
+        A job is emitted at most once per call, when `now >= next_due`. Its next
+        due time then moves one period along its own grid (`next_due += period_s`),
+        so a tick that wakes late does not shift later emissions (no drift). If the
+        scheduler fell more than a period behind, the next due time restarts at
+        `now + period_s`: the job is emitted once, with no catch-up burst. `dt` is
+        capped at MAX_TICK_DT_S.
 
         A tick or render that raises propagates and skips the remaining jobs for
         this call. Isolating a failing job (and logging it outside the lock) is up
@@ -164,7 +167,9 @@ class JobsBoard:
                             persistent=False,
                         )
                     )
-                    job.next_due = now + job.period_s
+                    job.next_due += job.period_s
+                    if job.next_due <= now:
+                        job.next_due = now + job.period_s
         return out
 
     def snapshot(self) -> list[dict[str, Any]]:

@@ -74,6 +74,12 @@ def _nack(command: Command, reason: str, detail: str, error: Exception | None = 
 
 
 class Registry:
+    """Maps each command type to its one handler.
+
+    Handlers must validate before they change the World, because a raising
+    handler's changes are not rolled back.
+    """
+
     def __init__(self) -> None:
         self._handlers: dict[CommandType, Handler] = {}
 

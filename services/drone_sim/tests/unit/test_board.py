@@ -193,7 +193,7 @@ def test_clock_jump_of_10s_emits_a_1s_job_once_not_10_times() -> None:
     assert only_job(board)["next_due"] == 11.0
 
 
-def test_due_emits_when_now_reaches_next_due_then_schedules_now_plus_period() -> None:
+def test_due_emits_when_now_reaches_next_due_then_schedules_one_period_on_its_grid() -> None:
     board = JobsBoard()
     board.upsert(make_job(period_s=2.0, next_due=5.0))
 
@@ -202,7 +202,31 @@ def test_due_emits_when_now_reaches_next_due_then_schedules_now_plus_period() ->
 
     assert before == []
     assert len(at) == 1
-    assert only_job(board)["next_due"] == 7.3
+    assert only_job(board)["next_due"] == 7.0
+
+
+def test_1s_job_does_not_drift_when_ticks_wake_late_by_0_to_90_ms_over_100s() -> None:
+    clock = FakeClock()
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+
+    now_ms = 0
+    emitted_at: list[float] = []
+    scheduled: list[float] = []
+    for tick in range(1, 1001):  # 1,000 ticks of 100 ms
+        late_ms = (tick * 37) % 91  # varies over 0..90 ms
+        wake_ms = tick * 100 + late_ms
+        clock.advance((wake_ms - now_ms) / 1000)
+        now_ms = wake_ms
+        due_at = only_job(board)["next_due"]
+        if board.due(clock.monotonic(), 0.1):
+            emitted_at.append(clock.monotonic())
+            scheduled.append(due_at)
+
+    assert len(emitted_at) == 100
+    assert scheduled == [float(n) for n in range(1, 101)]
+    assert all(0.0 <= at - due < 0.1 for at, due in zip(emitted_at, scheduled, strict=True))
+    assert only_job(board)["next_due"] == 101.0
 
 
 def test_emission_carries_the_job_payload_and_correlation_id_and_is_transient() -> None:
