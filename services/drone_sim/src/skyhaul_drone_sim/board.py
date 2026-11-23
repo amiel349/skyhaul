@@ -1,12 +1,15 @@
 """The jobs board: periodic telemetry jobs keyed by `(drone_id, type)`, behind one lock.
 
 Every read and write of job state happens under `JobsBoard._lock`, a plain
-`threading.Lock`. Nested acquisition is forbidden: the lock is not re-entrant, so a
-thread that takes it again (for example, calling `board.upsert` from a handler
-inside `transaction()`) hangs forever, silently. Use the `World` you were given
-instead. A re-entrant lock would hide such a call and let one thread see half-done
-changes. Scheduler ticks run under the same lock as command upserts, so neither
-can overwrite the other's change. Public reads return copies.
+`threading.Lock`. Nested acquisition is forbidden: calling a public board method
+from a handler inside `transaction()`, or from a tick or render, would see or
+change state mid-transaction. A re-entrant lock would allow that silently, and a
+plain lock would hang. So the board records the thread that holds the lock and
+raises RuntimeError when that thread asks again: the handler gets an
+INTERNAL_ERROR NACK, the tick a JobError. Use the `World` or job you were given.
+
+Scheduler ticks run under the same lock as command upserts, so neither can
+overwrite the other's change. Public reads return copies.
 
 Nothing that can block runs under the lock: no outbox put, sleep, event wait,
 network or file I/O, logging, or codec call (design note invariant 6). Tick and
@@ -225,7 +228,26 @@ class World:
 class JobsBoard:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Ident of the thread holding the lock. A thread can only find its own
+        # ident here while it holds the lock, so reading it unlocked is safe.
+        self._owner: int | None = None
         self._jobs: dict[JobKey, _Entry] = {}
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Take the lock, or raise if this thread already holds it (instead of hanging)."""
+        me = threading.get_ident()
+        if self._owner == me:
+            raise RuntimeError(
+                "JobsBoard lock taken again by the thread that holds it: inside a "
+                "transaction, tick or render, use the World or job you were given"
+            )
+        with self._lock:
+            self._owner = me
+            try:
+                yield
+            finally:
+                self._owner = None
 
     def upsert(self, job: Job) -> None:
         """Store a copy of `job`, replacing any job with the same key.
@@ -235,11 +257,11 @@ class JobsBoard:
         the period changed, the earlier of the old next due time and
         `job.next_due` wins, so a faster rate starts when the caller asked.
         """
-        with self._lock:
+        with self._locked():
             _upsert(self._jobs, _copy_job(job))
 
     def remove(self, drone_id: str, type: JobType) -> bool:
-        with self._lock:
+        with self._locked():
             return self._jobs.pop((drone_id, type), None) is not None
 
     @contextmanager
@@ -249,7 +271,7 @@ class JobsBoard:
         The World's staged changes are committed when the block ends normally and
         dropped when it raises.
         """
-        with self._lock:
+        with self._locked():
             world = World(self._jobs)
             try:
                 yield world
@@ -280,7 +302,7 @@ class JobsBoard:
         dt = min(max(dt, 0.0), MAX_TICK_DT_S) if math.isfinite(dt) else 0.0
         messages: list[Outgoing] = []
         errors: list[JobError] = []
-        with self._lock:
+        with self._locked():
             for key, entry in self._jobs.items():
                 is_due = now >= entry.next_due
                 try:
@@ -293,5 +315,5 @@ class JobsBoard:
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Deep copies of every job's data (without its functions)."""
-        with self._lock:
+        with self._locked():
             return [_to_dict(entry) for entry in self._jobs.values()]
