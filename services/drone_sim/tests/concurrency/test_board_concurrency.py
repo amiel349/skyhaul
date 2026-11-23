@@ -157,7 +157,7 @@ def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() ->
     registry = Registry()
 
     def count_tick(job: Job, dt: float) -> list[Outgoing]:
-        job.values = {**job.values, "a": job.values["a"] + 1}
+        job.values["a"] += 1
         return []
 
     @registry.handles("SET_SPEED")

@@ -12,6 +12,12 @@ Nothing that can block runs under the lock: no outbox put, sleep, event wait,
 network or file I/O, logging, or codec call (design note invariant 6). Tick and
 render functions are in-memory only.
 
+A `Job` is frozen: its identity (`drone_id`, `type`), period and correlation id
+cannot change in place, so the board's key always matches the job and every
+period was validated when the job was built. To change them, upsert a new `Job`
+(`dataclasses.replace`). Only the contents of `Job.values` change in place. The
+board keeps each job's actual next due time itself, next to the job.
+
 Until the drone model lands (#8, #9), tick and render functions receive the job
 itself and keep their state in `Job.values`. The wiring PR switches them to the
 `Drone`, and `type` to the contract `TelemetryType`.
@@ -37,23 +43,41 @@ type RenderFn = Callable[[Job], object]
 type TickFn = Callable[[Job, float], list[Outgoing]]
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Job:
     drone_id: str
     type: JobType
     period_s: float
     next_due: float
-    """Clock.monotonic() seconds at which the job is next emitted."""
+    """Clock.monotonic() seconds of the first emission when the job is added.
+
+    Once the job is on the board, the board tracks the actual next due time;
+    `World.get` returns a job carrying it."""
     render: RenderFn
     """Builds the payload from the job's current state."""
     tick: TickFn | None = None
-    """Runs on every scheduler tick while the job exists. Returns extra events."""
+    """Runs on every scheduler tick while the job exists. Returns extra events.
+    It may change `values` in place, nothing else."""
     correlation_id: str | None = None
     values: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not (math.isfinite(self.period_s) and self.period_s > 0):
+            raise ValueError(f"period_s must be finite and positive, got {self.period_s}")
+        if not math.isfinite(self.next_due):
+            raise ValueError(f"next_due must be finite, got {self.next_due}")
 
     @property
     def key(self) -> JobKey:
         return (self.drone_id, self.type)
+
+
+@dataclass(slots=True)
+class _Entry:
+    """A job on the board and its actual next due time."""
+
+    job: Job
+    next_due: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,16 +101,13 @@ def _copy_job(job: Job) -> Job:
     return dataclasses.replace(job, values=copy.deepcopy(job.values))
 
 
-def _upsert(jobs: dict[JobKey, Job], job: Job) -> None:
-    if not (math.isfinite(job.period_s) and job.period_s > 0):
-        raise ValueError(f"period_s must be finite and positive, got {job.period_s}")
-    if not math.isfinite(job.next_due):
-        raise ValueError(f"next_due must be finite, got {job.next_due}")
-    stored = _copy_job(job)
+def _upsert(jobs: dict[JobKey, _Entry], job: Job) -> None:
+    """Store `job` (the caller passes a private copy), keeping next_due if the key exists."""
     existing = jobs.get(job.key)
-    if existing is not None:
-        stored.next_due = existing.next_due
-    jobs[job.key] = stored
+    if existing is None:
+        jobs[job.key] = _Entry(job, job.next_due)
+    else:
+        existing.job = job
 
 
 def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
@@ -114,18 +135,20 @@ def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
     return produced
 
 
-def _advance(job: Job, now: float) -> None:
-    job.next_due += job.period_s
-    if job.next_due <= now:
-        job.next_due = now + job.period_s
+def _advance(entry: _Entry, now: float) -> None:
+    period_s = entry.job.period_s
+    entry.next_due += period_s
+    if entry.next_due <= now:
+        entry.next_due = now + period_s
 
 
-def _to_dict(job: Job) -> dict[str, Any]:
+def _to_dict(entry: _Entry) -> dict[str, Any]:
+    job = entry.job
     return {
         "drone_id": job.drone_id,
         "type": job.type,
         "period_s": job.period_s,
-        "next_due": job.next_due,
+        "next_due": entry.next_due,
         "correlation_id": job.correlation_id,
         "values": copy.deepcopy(job.values),
     }
@@ -135,24 +158,28 @@ class World:
     """The board's state while its lock is held.
 
     Handed out only by `JobsBoard.transaction()` and valid only inside that `with`
-    block; any use after it raises. `get` returns the live job so a handler can
-    change it in place. Do not keep the reference past the block.
+    block; any use after it raises. `get` returns a job whose `values` are the
+    live ones, so a handler can change them in place, and whose `next_due` is the
+    board's actual next due time. Do not keep the reference past the block.
     """
 
     __slots__ = ("_jobs", "_open")
 
-    def __init__(self, jobs: dict[JobKey, Job]) -> None:
+    def __init__(self, jobs: dict[JobKey, _Entry]) -> None:
         self._jobs = jobs
         self._open = True
 
     def get(self, drone_id: str, type: JobType) -> Job | None:
         self._check_open()
-        return self._jobs.get((drone_id, type))
+        entry = self._jobs.get((drone_id, type))
+        if entry is None:
+            return None
+        return dataclasses.replace(entry.job, next_due=entry.next_due)
 
     def upsert(self, job: Job) -> None:
         """Store a copy of `job`, replacing any job with the same key but keeping its next_due."""
         self._check_open()
-        _upsert(self._jobs, job)
+        _upsert(self._jobs, _copy_job(job))
 
     def remove(self, drone_id: str, type: JobType) -> bool:
         self._check_open()
@@ -169,12 +196,12 @@ class World:
 class JobsBoard:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._jobs: dict[JobKey, Job] = {}
+        self._jobs: dict[JobKey, _Entry] = {}
 
     def upsert(self, job: Job) -> None:
         """Store a copy of `job`, replacing any job with the same key but keeping its next_due."""
         with self._lock:
-            _upsert(self._jobs, job)
+            _upsert(self._jobs, _copy_job(job))
 
     def remove(self, drone_id: str, type: JobType) -> bool:
         with self._lock:
@@ -213,17 +240,17 @@ class JobsBoard:
         messages: list[Outgoing] = []
         errors: list[JobError] = []
         with self._lock:
-            for job in self._jobs.values():
-                is_due = now >= job.next_due
+            for key, entry in self._jobs.items():
+                is_due = now >= entry.next_due
                 try:
-                    messages.extend(_run_job(job, dt, is_due))
+                    messages.extend(_run_job(entry.job, dt, is_due))
                 except Exception as exc:
-                    errors.append(JobError(job.key, exc))
+                    errors.append(JobError(key, exc))
                 if is_due:
-                    _advance(job, now)
+                    _advance(entry, now)
         return DueResult(messages, errors)
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Deep copies of every job's data (without its functions)."""
         with self._lock:
-            return [_to_dict(job) for job in self._jobs.values()]
+            return [_to_dict(entry) for entry in self._jobs.values()]

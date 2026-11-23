@@ -1,3 +1,4 @@
+import dataclasses
 import math
 from typing import Any
 
@@ -174,11 +175,8 @@ def test_reads_return_copies_changing_an_upserted_job_does_not_change_the_board(
     board.upsert(job)
 
     job.values["pos"]["lat"] = 50.0
-    job.next_due = 999.0
 
-    stored = only_job(board)
-    assert stored["values"] == {"pos": {"lat": 1.0}}
-    assert stored["next_due"] == 1.0
+    assert only_job(board)["values"] == {"pos": {"lat": 1.0}}
 
 
 # --- due: periods, clock jumps, ticks ---
@@ -486,3 +484,71 @@ def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
 
     assert event.payload == {"pos": {"n": 1}}
     assert only_job(board)["values"] == {"pos": {"n": 3}}
+
+
+# --- identity and period cannot change in place ---
+
+
+def test_tick_that_tries_to_change_its_jobs_type_fails_and_keys_stay_unique() -> None:
+    def rename(job: Job, dt: float) -> list[Outgoing]:
+        job.type = "BATTERY"
+        return []
+
+    board = JobsBoard()
+    board.upsert(make_job(type="HEARTBEAT", next_due=100.0, tick=rename))
+    board.upsert(make_job(type="BATTERY", next_due=100.0))
+
+    result = board.due(now=1.0, dt=0.1)
+
+    assert [(error.key, type(error.error)) for error in result.errors] == [
+        (("main-d001", "HEARTBEAT"), dataclasses.FrozenInstanceError)
+    ]
+    assert sorted(job_key(job) for job in board.snapshot()) == [
+        ("main-d001", "BATTERY"),
+        ("main-d001", "HEARTBEAT"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [("drone_id", "main-d002"), ("type", "BATTERY"), ("period_s", 0.0), ("period_s", math.nan)],
+)
+def test_job_from_world_get_cannot_change_identity_or_period_in_place(
+    field_name: str, value: object
+) -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+
+    with board.transaction() as world:
+        job = world.get("main-d001", "HEARTBEAT")
+        assert job is not None
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(job, field_name, value)
+
+    assert [job_key(job) for job in board.snapshot()] == [("main-d001", "HEARTBEAT")]
+    assert only_job(board)["period_s"] == 1.0
+    assert len(board.due(now=1.0, dt=0.1).messages) == 1
+    assert board.due(now=1.1, dt=0.1).messages == []
+
+
+def test_replacing_a_job_with_a_bad_period_is_rejected() -> None:
+    job = make_job(period_s=1.0)
+
+    with pytest.raises(ValueError, match="period_s must be finite and positive"):
+        dataclasses.replace(job, period_s=0.0)
+
+
+def test_world_get_carries_the_boards_actual_next_due() -> None:
+    board = JobsBoard()
+    board.upsert(make_job(period_s=1.0, next_due=1.0))
+    board.due(now=1.0, dt=0.1)
+
+    with board.transaction() as world:
+        job = world.get("main-d001", "HEARTBEAT")
+
+    assert job is not None
+    assert job.next_due == 2.0
+
+
+def job_key(job: dict[str, Any]) -> tuple[str, str]:
+    return (job["drone_id"], job["type"])
