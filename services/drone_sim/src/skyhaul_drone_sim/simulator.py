@@ -120,8 +120,9 @@ class Simulator:
         self.stop()
         self.publisher.begin_drain()
         self.scheduler_thread.join(JOIN_GRACE_S)
-        self._put_sentinel()
-        self.publisher.join(self.cfg.drain_s + JOIN_GRACE_S)
+        give_up_at = time.monotonic() + self.cfg.drain_s + JOIN_GRACE_S
+        self._put_sentinel(give_up_at)
+        self.publisher.join(max(0.0, give_up_at - time.monotonic()))
         if self.publisher.is_alive():
             log.error("publisher did not stop in time")
         left = _count_left(self.outbox)
@@ -136,8 +137,9 @@ class Simulator:
             },
         )
 
-    def _put_sentinel(self) -> None:
-        while self.publisher.is_alive():
+    def _put_sentinel(self, give_up_at: float) -> None:
+        """Queue the sentinel, unless the publisher is gone or stuck past the bound."""
+        while self.publisher.is_alive() and time.monotonic() < give_up_at:
             try:
                 self.outbox.put(SENTINEL, timeout=0.2)
                 return
