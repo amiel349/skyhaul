@@ -103,7 +103,7 @@ def _has_lone_surrogate(obj: Any) -> bool:
     return False
 
 
-def parse_json(body: bytes | bytearray | memoryview) -> Any:
+def _parse_json(body: bytes | bytearray | memoryview) -> Any:
     """Strict JSON for message bodies. Raises ``MalformedMessage``.
 
     Beyond RFC 8259: no NaN/Infinity tokens, no number that overflows to infinity, no
@@ -281,7 +281,7 @@ class Codec:
     # -- internals (caller holds self._lock) ----------------------------------------------
 
     def _decode(self, body: bytes) -> Message[BaseModel]:
-        obj = parse_json(body)
+        obj = _parse_json(body)
         if not isinstance(obj, dict):
             raise MalformedMessage("not_object")
 
