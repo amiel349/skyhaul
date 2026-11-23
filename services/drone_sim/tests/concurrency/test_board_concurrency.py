@@ -5,7 +5,7 @@ import random
 import threading
 from collections.abc import Callable
 
-from skyhaul_drone_sim.board import Job, JobsBoard, World
+from skyhaul_drone_sim.board import Job, JobError, JobsBoard, World
 from skyhaul_drone_sim.outbox import Outgoing
 from skyhaul_drone_sim.registry import Command, Registry
 
@@ -105,6 +105,49 @@ def test_at_most_one_job_per_drone_and_type_after_16_threads_of_1000_upserts_and
     keys = job_keys(board)
     assert len(keys) == len(set(keys))
     assert set(keys) <= {(drone_id, type) for drone_id in drones for type in types}
+
+
+def test_due_keeps_running_while_16_threads_run_1000_upserts_and_removes() -> None:
+    """Scheduler ticks iterate the board while commands add and remove jobs."""
+    board = JobsBoard()
+    drones = [f"main-d{n:03}" for n in range(50)]
+    types = ["HEARTBEAT", "BATTERY", "POSITION"]
+    churn_done = threading.Event()
+    due_calls = 0
+    job_errors: list[JobError] = []
+
+    def churn(seed: int) -> Callable[[], None]:
+        def work() -> None:
+            rng = random.Random(seed)  # noqa: S311 - seeded test data, not security
+            for _ in range(1000):
+                drone_id, type = rng.choice(drones), rng.choice(types)
+                if rng.random() < 0.6:
+                    board.upsert(make_job(drone_id, type))
+                else:
+                    board.remove(drone_id, type)
+
+        return work
+
+    def all_churners() -> None:
+        try:
+            run_together([churn(seed) for seed in range(16)])
+        finally:
+            churn_done.set()
+
+    def scheduler() -> None:
+        nonlocal due_calls
+        now = 0.0
+        while not churn_done.is_set():
+            now += 0.1
+            job_errors.extend(board.due(now, 0.1).errors)
+            due_calls += 1
+
+    run_together([all_churners, scheduler])
+
+    keys = job_keys(board)
+    assert due_calls > 0
+    assert job_errors == []
+    assert len(keys) == len(set(keys))
 
 
 def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() -> None:

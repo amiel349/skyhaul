@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from skyhaul_drone_sim.board import World
-from skyhaul_drone_sim.outbox import Outgoing
+from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
 
 type CommandType = str
 
@@ -109,8 +109,9 @@ class Registry:
         """Run the handler for `command.type` and return its replies.
 
         Called inside a board transaction, so it never logs, sleeps or publishes. A
-        handler that raises gets an INTERNAL_ERROR NACK instead of propagating, and
-        the exception rides on the placeholder for the consumer to log.
+        handler that raises, or returns anything but a list of Outgoing, gets an
+        INTERNAL_ERROR NACK instead of propagating, and the exception rides on the
+        placeholder for the consumer to log.
 
         Steps added by later PRs, in this order (approved design):
         1. Unknown drone: return [] (#9).
@@ -125,9 +126,13 @@ class Registry:
         if handler is None:
             return [_nack(command, "UNKNOWN_TYPE", "no handler for this command type")]
         try:
-            return handler(world, command, now)
+            replies = handler(world, command, now)
         except Exception as exc:
             return [_nack(command, "INTERNAL_ERROR", f"handler raised {type(exc).__name__}", exc)]
+        if not is_outgoing_list(replies):
+            detail = f"handler returned {type(replies).__name__}, expected list[Outgoing]"
+            return [_nack(command, "INTERNAL_ERROR", detail, TypeError(detail))]
+        return replies
 
 
 def _name(handler: Handler) -> str:

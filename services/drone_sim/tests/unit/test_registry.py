@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 import pytest
 from skyhaul_drone_sim.board import Job, JobsBoard, World
@@ -192,3 +193,33 @@ def test_command_types_lists_every_registered_type() -> None:
         return []
 
     assert registry.command_types() == frozenset({"ARM", "LAND"})
+
+
+@pytest.mark.parametrize(
+    ("returned", "returned_type"),
+    [
+        (None, "NoneType"),
+        ((Outgoing("main-d001", "ACK", "corr-1", {}, persistent=True),), "tuple"),
+        ([{"ack": True}], "list"),
+        (Outgoing("main-d001", "ACK", "corr-1", {}, persistent=True), "Outgoing"),
+    ],
+    ids=["none", "tuple", "list-of-dicts", "bare-outgoing"],
+)
+def test_handler_that_returns_anything_but_a_list_of_outgoing_gets_an_internal_error_nack(
+    returned: object, returned_type: str
+) -> None:
+    registry = Registry()
+
+    @registry.handles("ARM")
+    def handle_arm(world: World, command: Command, now: float) -> Any:
+        return returned
+
+    with JobsBoard().transaction() as world:
+        (reply,) = registry.dispatch(world, make_command("ARM"), now=0.0)
+
+    assert reply.type == "NACK"
+    assert reply.correlation_id == "corr-1"
+    assert isinstance(reply.payload, NackPlaceholder)
+    assert reply.payload.reason == "INTERNAL_ERROR"
+    assert reply.payload.detail == f"handler returned {returned_type}, expected list[Outgoing]"
+    assert isinstance(reply.payload.error, TypeError)

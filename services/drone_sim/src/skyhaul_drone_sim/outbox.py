@@ -5,6 +5,7 @@ The bounded outbox queue and its sentinel arrive with the publisher thread
 """
 
 from dataclasses import dataclass
+from typing import TypeGuard
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,3 +23,8 @@ class Outgoing:
     correlation_id: str | None
     payload: object
     persistent: bool
+
+
+def is_outgoing_list(value: object) -> TypeGuard[list[Outgoing]]:
+    """True if `value` is a list whose items are all Outgoing (what handlers and ticks return)."""
+    return isinstance(value, list) and all(isinstance(item, Outgoing) for item in value)

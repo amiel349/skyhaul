@@ -1,9 +1,12 @@
 """The jobs board: periodic telemetry jobs keyed by `(drone_id, type)`, behind one lock.
 
 Every read and write of job state happens under `JobsBoard._lock`, a plain
-`threading.Lock` (not re-entrant, so nested acquisition deadlocks loudly instead of
-hiding a design error). Scheduler ticks run under the same lock as command upserts,
-so neither can overwrite the other's change. Public reads return copies.
+`threading.Lock`. Nested acquisition is forbidden: the lock is not re-entrant, so a
+thread that takes it again (for example, calling `board.upsert` from a handler
+inside `transaction()`) hangs forever, silently. Use the `World` you were given
+instead. A re-entrant lock would hide such a call and let one thread see half-done
+changes. Scheduler ticks run under the same lock as command upserts, so neither
+can overwrite the other's change. Public reads return copies.
 
 Nothing that can block runs under the lock: no outbox put, sleep, event wait,
 network or file I/O, logging, or codec call (design note invariant 6). Tick and
@@ -16,13 +19,14 @@ itself and keep their state in `Job.values`. The wiring PR switches them to the
 
 import copy
 import dataclasses
+import math
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from skyhaul_drone_sim.outbox import Outgoing
+from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
 
 MAX_TICK_DT_S = 0.5
 """A tick never advances state by more than this, however long the scheduler stalled."""
@@ -52,19 +56,65 @@ class Job:
         return (self.drone_id, self.type)
 
 
+@dataclass(frozen=True, slots=True)
+class JobError:
+    """A job whose tick or render failed during one `due()` call."""
+
+    key: JobKey
+    error: Exception
+
+
+@dataclass(frozen=True, slots=True)
+class DueResult:
+    """What one `due()` call produced. The scheduler logs `errors` outside the lock."""
+
+    messages: list[Outgoing]
+    errors: list[JobError]
+
+
 def _copy_job(job: Job) -> Job:
     # render and tick are shared on purpose: they are code, not state.
     return dataclasses.replace(job, values=copy.deepcopy(job.values))
 
 
 def _upsert(jobs: dict[JobKey, Job], job: Job) -> None:
-    if job.period_s <= 0:
-        raise ValueError(f"period_s must be positive, got {job.period_s}")
+    if not (math.isfinite(job.period_s) and job.period_s > 0):
+        raise ValueError(f"period_s must be finite and positive, got {job.period_s}")
+    if not math.isfinite(job.next_due):
+        raise ValueError(f"next_due must be finite, got {job.next_due}")
     stored = _copy_job(job)
     existing = jobs.get(job.key)
     if existing is not None:
         stored.next_due = existing.next_due
     jobs[job.key] = stored
+
+
+def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
+    """Tick the job, then render it if it is due. Raises if the tick or render fails."""
+    produced: list[Outgoing] = []
+    if job.tick is not None:
+        events = job.tick(job, dt)
+        if not is_outgoing_list(events):
+            raise TypeError(f"tick returned {type(events).__name__}, expected list[Outgoing]")
+        produced.extend(events)
+    if is_due:
+        produced.append(
+            Outgoing(
+                drone_id=job.drone_id,
+                type=job.type,
+                correlation_id=job.correlation_id,
+                # A copy, so the publisher never reads live job state.
+                payload=copy.deepcopy(job.render(job)),
+                persistent=False,
+            )
+        )
+    return produced
+
+
+def _advance(job: Job, now: float) -> None:
+    job.next_due += job.period_s
+    if job.next_due <= now:
+        job.next_due = now + job.period_s
 
 
 def _to_dict(job: Job) -> dict[str, Any]:
@@ -137,7 +187,7 @@ class JobsBoard:
             finally:
                 world._close()
 
-    def due(self, now: float, dt: float) -> list[Outgoing]:
+    def due(self, now: float, dt: float) -> DueResult:
         """Run every job's tick, then emit each job that is due.
 
         A job is emitted at most once per call, when `now >= next_due`. Its next
@@ -145,32 +195,30 @@ class JobsBoard:
         so a tick that wakes late does not shift later emissions (no drift). If the
         scheduler fell more than a period behind, the next due time restarts at
         `now + period_s`: the job is emitted once, with no catch-up burst. `dt` is
-        capped at MAX_TICK_DT_S.
+        capped at MAX_TICK_DT_S, and a non-finite `dt` counts as 0.
 
-        A tick or render that raises propagates and skips the remaining jobs for
-        this call. Isolating a failing job (and logging it outside the lock) is up
-        to the scheduler thread, which arrives in the second half of #7.
+        Order: jobs are handled in the order they were first added (a replaced job
+        keeps its place, a removed and re-added one goes last). Each job's tick
+        events come right before its own emission.
+
+        A job whose tick or render raises, or whose tick returns anything but a
+        list of Outgoing, is reported in `errors` and its output for this call is
+        dropped. Its next_due still advances if it was due, so it fails at most once
+        per period. Other jobs are not affected.
         """
-        dt = min(max(dt, 0.0), MAX_TICK_DT_S)
-        out: list[Outgoing] = []
+        dt = min(max(dt, 0.0), MAX_TICK_DT_S) if math.isfinite(dt) else 0.0
+        messages: list[Outgoing] = []
+        errors: list[JobError] = []
         with self._lock:
             for job in self._jobs.values():
-                if job.tick is not None:
-                    out.extend(job.tick(job, dt))
-                if now >= job.next_due:
-                    out.append(
-                        Outgoing(
-                            drone_id=job.drone_id,
-                            type=job.type,
-                            correlation_id=job.correlation_id,
-                            payload=job.render(job),
-                            persistent=False,
-                        )
-                    )
-                    job.next_due += job.period_s
-                    if job.next_due <= now:
-                        job.next_due = now + job.period_s
-        return out
+                is_due = now >= job.next_due
+                try:
+                    messages.extend(_run_job(job, dt, is_due))
+                except Exception as exc:
+                    errors.append(JobError(job.key, exc))
+                if is_due:
+                    _advance(job, now)
+        return DueResult(messages, errors)
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Deep copies of every job's data (without its functions)."""
