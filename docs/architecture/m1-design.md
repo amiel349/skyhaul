@@ -123,12 +123,12 @@ All names and arguments are constants in `skyhaul_contracts.topology`.
 | `fleet.cmd` | topic exchange | yes | |
 | `fleet.telemetry` | topic exchange | yes | |
 | `fleet.dlx` | fanout exchange | yes | Dead-letter target |
-| `fleet.dead` | queue (classic) | yes | Bound to `fleet.dlx`. Inspected by hand, no consumer |
-| `drone_sim.cmd` | **quorum** queue | yes | Bound to `fleet.cmd` with `drone.*.*`. `x-dead-letter-exchange=fleet.dlx`, `x-delivery-limit=5`, `x-single-active-consumer=true` |
+| `fleet.dead` | queue (classic) | yes | Bound to `fleet.dlx`. `x-max-length=10000`, `x-overflow=drop-head` (keeps the newest evidence under a flood). Inspected by hand, no consumer |
+| `drone_sim.cmd` | **quorum** queue | yes | Bound to `fleet.cmd` with `drone.*.*`. `x-dead-letter-exchange=fleet.dlx`, `x-delivery-limit=5`, `x-single-active-consumer=true`, `x-max-length=10000`, `x-overflow=reject-publish` |
 | `debug.telemetry` | classic queue, optional | no | Only when `SIM_DEBUG_TAP=1` (`declare_debug_tap`). Bound to `fleet.telemetry` with `drone.*.*`, `x-max-length=1000`, `x-overflow=drop-head` |
 | Telemetry consumers | | | Owned by their service (ingestor in M2). Tests and the MCP server use exclusive auto-delete queues bound to `drone_binding(id)` = `drone.<id>.*` |
 
-`declare_topology` declares everything except the debug tap. **Command senders call it too**, not only the simulator: then a command published before the simulator first starts is queued in `drone_sim.cmd` instead of being unroutable (#7 durability criterion).
+`declare_topology` declares everything except the debug tap. **Both durable queues are length-bounded** (`MAX_QUEUE_LENGTH = 10_000`), so a flood cannot exhaust broker disk. The bounds are part of the contract from v1 on, because queue arguments cannot change after the first declare without PRECONDITION_FAILED (changing them means a new queue name and a migration). A full `drone_sim.cmd` rejects new publishes instead of dropping commands, so a sender with publisher confirms gets a nack and sees back-pressure; command senders must use confirms and treat a nack as "not sent". **Command senders call it too**, not only the simulator: then a command published before the simulator first starts is queued in `drone_sim.cmd` instead of being unroutable (#7 durability criterion).
 
 **One queue for all drones, not one per drone:**
 - The consumer count and channel count stay constant, which fits ADR 0003's fixed three threads.

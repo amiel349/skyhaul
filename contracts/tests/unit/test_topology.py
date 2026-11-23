@@ -33,7 +33,7 @@ def test_drone_binding_matches_every_type_of_one_drone() -> None:
         t.drone_binding("gw1.*")
 
 
-def test_declare_topology_declares_durable_exchanges_dlx_and_quorum_command_queue() -> None:
+def test_declare_topology_declares_durable_exchanges_and_bounded_queues() -> None:
     channel = RecordingChannel()
 
     t.declare_topology(channel)
@@ -42,7 +42,11 @@ def test_declare_topology_declares_durable_exchanges_dlx_and_quorum_command_queu
         ("exchange_declare", ("fleet.cmd",), {"exchange_type": "topic", "durable": True}),
         ("exchange_declare", ("fleet.telemetry",), {"exchange_type": "topic", "durable": True}),
         ("exchange_declare", ("fleet.dlx",), {"exchange_type": "fanout", "durable": True}),
-        ("queue_declare", ("fleet.dead",), {"durable": True}),
+        (
+            "queue_declare",
+            ("fleet.dead",),
+            {"durable": True, "arguments": {"x-max-length": 10_000, "x-overflow": "drop-head"}},
+        ),
         ("queue_bind", ("fleet.dead", "fleet.dlx"), {}),
         (
             "queue_declare",
@@ -54,6 +58,8 @@ def test_declare_topology_declares_durable_exchanges_dlx_and_quorum_command_queu
                     "x-single-active-consumer": True,
                     "x-delivery-limit": 5,
                     "x-dead-letter-exchange": "fleet.dlx",
+                    "x-max-length": 10_000,
+                    "x-overflow": "reject-publish",
                 },
             },
         ),

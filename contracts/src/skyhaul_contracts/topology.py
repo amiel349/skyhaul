@@ -21,6 +21,15 @@ DEAD_LETTER_QUEUE: Final = "fleet.dead"
 
 ALL_DRONES_BINDING: Final = "drone.*.*"
 
+# Queue arguments cannot change after the first declare (PRECONDITION_FAILED), so the length
+# bounds are part of the contract from v1 on (ADR 0006).
+MAX_QUEUE_LENGTH: Final = 10_000
+
+DEAD_LETTER_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
+    # Inspected by hand; under a flood keep the newest evidence and drop the oldest.
+    {"x-max-length": MAX_QUEUE_LENGTH, "x-overflow": "drop-head"}
+)
+
 SIM_COMMAND_QUEUE: Final = "drone_sim.cmd"
 SIM_COMMAND_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
     {
@@ -28,6 +37,10 @@ SIM_COMMAND_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
         "x-single-active-consumer": True,
         "x-delivery-limit": 5,
         "x-dead-letter-exchange": DEAD_LETTER_EXCHANGE,
+        # Commands are never dropped silently: when full, the broker nacks new publishes,
+        # so a sender using publisher confirms sees back-pressure.
+        "x-max-length": MAX_QUEUE_LENGTH,
+        "x-overflow": "reject-publish",
     }
 )
 
@@ -71,7 +84,9 @@ def declare_topology(channel: Any) -> None:
     channel.exchange_declare(COMMAND_EXCHANGE, exchange_type="topic", durable=True)
     channel.exchange_declare(TELEMETRY_EXCHANGE, exchange_type="topic", durable=True)
     channel.exchange_declare(DEAD_LETTER_EXCHANGE, exchange_type="fanout", durable=True)
-    channel.queue_declare(DEAD_LETTER_QUEUE, durable=True)
+    channel.queue_declare(
+        DEAD_LETTER_QUEUE, durable=True, arguments=dict(DEAD_LETTER_QUEUE_ARGUMENTS)
+    )
     channel.queue_bind(DEAD_LETTER_QUEUE, DEAD_LETTER_EXCHANGE)
     channel.queue_declare(
         SIM_COMMAND_QUEUE, durable=True, arguments=dict(SIM_COMMAND_QUEUE_ARGUMENTS)
