@@ -10,7 +10,7 @@ Skyhaul is a public repository. The main risks are leaked secrets, test evidence
 | Default passwords | RabbitMQ, Postgres, Redis | No defaults: compose fails if a value is missing; `make env` generates random values | M0 | done |
 | Secrets in images | Dockerfiles, registry | `.dockerignore` excludes `.env`; multi-stage builds; no secrets in ENV or build args; non-root user; Trivy scan | M0, M7 | partial |
 | Personal data | git history, README | Commits use the GitHub noreply address; no phone or email in the repo | M0 | done |
-| Employer material | Elta, Axonius | No code, names, documents or message names from either | always | ongoing |
+| Employer material | The author's past and current employers | No code, names, documents or message names from either | always | ongoing |
 | CI supply chain | Actions, dependencies | Actions pinned by SHA; `permissions: contents: read`; `persist-credentials: false`; no `pull_request_target`; lockfiles; Dependabot with a 7-day cooldown; pnpm `minimumReleaseAge` of 7 days | M0 | done |
 | Agents reading secrets | Claude Code | Deny rules for `.env*`, keys and `secrets/` in `.claude/settings.json`; agent instructions | M0 | done |
 | Exposed services | Local stack | Ports bound to 127.0.0.1 only | M0 | done |
