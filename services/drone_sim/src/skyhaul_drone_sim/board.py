@@ -143,6 +143,10 @@ class JobsBoard:
         A job is emitted at most once per call, when `now >= next_due`, and then
         `next_due = now + period_s`. So after a stall it is emitted once, with no
         catch-up burst. `dt` is capped at MAX_TICK_DT_S.
+
+        A tick or render that raises propagates and skips the remaining jobs for
+        this call. Isolating a failing job (and logging it outside the lock) is up
+        to the scheduler thread, which arrives in the second half of #7.
         """
         dt = min(max(dt, 0.0), MAX_TICK_DT_S)
         out: list[Outgoing] = []
