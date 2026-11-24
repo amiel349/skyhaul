@@ -1,7 +1,7 @@
 """SET_SPEED: simple reply, any state. Sets the cruise speed."""
 
 import pytest
-from sim_support.flight import Flight, goto, of_type, offset_point, reply_type
+from sim_support.flight import Flight, goto, nack_reason, of_type, offset_point, reply_type
 from skyhaul_contracts import MessageType
 from skyhaul_contracts.v1 import SetSpeedPayload
 
@@ -29,3 +29,15 @@ def test_set_speed_while_flying_changes_the_speed_of_the_current_leg() -> None:
 
     assert before[-1].message.payload.ground_speed_mps == pytest.approx(10.0)
     assert after[-1].message.payload.ground_speed_mps == pytest.approx(15.0)
+
+
+def test_set_speed_at_or_below_10_pct_battery_gets_nack_battery_too_low_and_speed_is_kept() -> None:
+    flight = Flight()
+    flight.hovering()
+    before = flight.drone.cruise_mps
+    flight.set(battery_pct=8.0)
+
+    assert (
+        nack_reason(flight.send("SET_SPEED", SetSpeedPayload(speed_mps=2.0))) == "BATTERY_TOO_LOW"
+    )
+    assert flight.drone.cruise_mps == before

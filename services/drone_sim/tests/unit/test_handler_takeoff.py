@@ -47,3 +47,15 @@ def test_drone_is_taking_off_until_it_reaches_the_altitude() -> None:
     assert flight.drone.state is FlightState.TAKING_OFF
     flight.run(1.0)
     assert flight.drone.state is FlightState.HOVERING
+
+
+@pytest.mark.parametrize("battery_pct", [10.0, 0.0])
+def test_armed_drone_with_battery_at_or_below_10_pct_gets_nack_battery_too_low_for_takeoff(
+    battery_pct: float,
+) -> None:
+    flight = Flight()
+    flight.send("ARM")
+    flight.set(battery_pct=battery_pct)
+
+    assert nack_reason(flight.send("TAKEOFF", TakeoffPayload(altitude_m=30.0))) == "BATTERY_TOO_LOW"
+    assert flight.drone.state is FlightState.ARMED

@@ -103,3 +103,18 @@ def test_battery_never_goes_below_zero() -> None:
 
     assert d.battery_pct == 0.0
     assert physics.est_remaining_s(d) == 0
+
+
+@pytest.mark.parametrize("distance_m", [23.0, 4.0, 0.7])
+def test_last_step_is_shortened_so_a_target_between_steps_is_never_passed(
+    distance_m: float,
+) -> None:
+    d = make_drone(state=FlightState.FLYING, altitude_m=30.0)
+    d.target = Target(offset_point(north_m=distance_m), 30.0)
+    start = d.pos
+
+    for _ in range(10):  # 5 m per step
+        physics.step_movement(d, 0.5)
+        assert physics.distance_m(start, d.pos) <= distance_m + 1e-6
+
+    assert d.pos == d.target.point

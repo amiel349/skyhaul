@@ -52,6 +52,8 @@ def handle_takeoff(world: World, command: Message[Any], now: float) -> list[Outg
     payload: TakeoffPayload = command.payload
     if d.state is not FlightState.ARMED:
         return [nack_command(command, NackReason.INVALID_STATE, NOT_ARMED)]
+    if _battery_critical(d):
+        return [nack_command(command, NackReason.BATTERY_TOO_LOW, BATTERY_CRITICAL)]
     behaviors.fly_to(d, Target(d.pos, payload.altitude_m), FlightState.TAKING_OFF)
     _moved_by(world, command, now)
     return [ack(command)]
@@ -101,6 +103,9 @@ def handle_land(world: World, command: Message[Any], now: float) -> list[Outgoin
 def handle_set_speed(world: World, command: Message[Any], now: float) -> list[Outgoing]:
     d = _drone(world, command)
     payload: SetSpeedPayload = command.payload
+    if _battery_critical(d):
+        # Changing speed could slow the automatic return home until the battery runs out.
+        return [nack_command(command, NackReason.BATTERY_TOO_LOW, BATTERY_CRITICAL)]
     d.cruise_mps = payload.speed_mps
     return [ack(command)]
 
@@ -139,7 +144,7 @@ def _moved_by(world: World, command: Message[Any], now: float) -> None:
 
 
 def _battery_critical(d: Drone) -> bool:
-    """At or below the critical level a drone only returns home or lands: GOTO and
-    START_MISSION are refused, so a dispatcher can't redirect a drone that is going home
-    on its last charge (or one that is forced to land at 0 %)."""
+    """At or below the critical level a drone only returns home or lands: TAKEOFF, GOTO,
+    START_MISSION and SET_SPEED are refused, so nobody can launch, redirect or slow a drone
+    that is going home on its last charge (or one that is forced to land at 0 %)."""
     return d.battery_pct <= behaviors.CRITICAL_BATTERY_PCT

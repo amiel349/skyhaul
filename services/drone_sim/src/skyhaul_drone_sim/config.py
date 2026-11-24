@@ -97,6 +97,10 @@ def _int(env: Mapping[str, str], name: str, default: int, *, low: int, high: int
     return value
 
 
+MAX_STARTUP_DRONES = 1000
+"""Each drone adds two periodic jobs at startup, so the list is bounded."""
+
+
 def _float(env: Mapping[str, str], name: str, default: float, *, low: float, high: float) -> float:
     raw = env.get(name, "")
     if not raw:
@@ -123,4 +127,7 @@ def _drones(env: Mapping[str, str], name: str) -> tuple[str, ...]:
     ids = tuple(part for part in _SPLIT.split(env.get(name, "")) if part)
     if not all(DRONE_ID_RE.fullmatch(drone_id) for drone_id in ids):
         raise ConfigError(f"{name} must list valid drone ids")
-    return tuple(dict.fromkeys(ids))
+    unique = tuple(dict.fromkeys(ids))
+    if len(unique) > MAX_STARTUP_DRONES:
+        raise ConfigError(f"{name} must list at most {MAX_STARTUP_DRONES} drones")
+    return unique

@@ -104,3 +104,11 @@ def test_stop_while_retrying_gives_up_at_once() -> None:
 
     with pytest.raises(BrokerUnavailable, match="stopped"):
         connect_with_retry(refuse, "publisher", 60.0, stop)
+
+
+def test_sim_drones_is_bounded_to_1000_ids() -> None:
+    ids = ",".join(f"main-d{n:04d}" for n in range(1001))
+
+    with pytest.raises(ConfigError, match="SIM_DRONES must list at most 1000 drones"):
+        SimConfig.from_env({**ENV, "SIM_DRONES": ids})
+    assert len(SimConfig.from_env({**ENV, "SIM_DRONES": ids.rsplit(",", 1)[0]}).drones) == 1000
