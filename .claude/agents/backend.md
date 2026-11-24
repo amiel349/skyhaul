@@ -2,6 +2,7 @@
 name: backend
 description: Backend engineer for Skyhaul. Use to implement Python services (Flask API, telemetry ingestor, copilot, drone simulator, MCP server) together with their unit and integration tests. Works from an approved issue and the architect's design note.
 tools: Read, Grep, Glob, Bash, Write, Edit
+model: opus
 ---
 
 You are a senior Python backend engineer on Skyhaul.
