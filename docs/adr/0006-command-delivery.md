@@ -1,6 +1,6 @@
 # 0006 · Command delivery semantics
 
-Status: accepted · 2026-11-23 · amended 2026-11-24
+Status: accepted · 2026-11-23 · amended 2026-11-24 · amended by [0013](0013-least-privilege-infrastructure.md)
 
 ## Context
 
@@ -41,3 +41,12 @@ Settled while wiring the consumer (#7, PR #15) and building the MCP server (#11,
 - **`UNSUPPORTED_VERSION` checks the type too.** A message whose readable `hint.type` differs from the routing key's `<type>` is dead-lettered instead of NACKed, stricter than the original rule. A NACK then names exactly the drone and the type the broker routed.
 - **The MCP server does not declare `drone_sim.cmd`.** It declares only `fleet.cmd`, `fleet.telemetry` and its own exclusive reply queue. Otherwise its `mandatory=True` publish could never come back unroutable: the queue would always exist, and a developer would wait out the timeout instead of hearing "the simulator is not running". Once the simulator has run, its durable queue remains, so a command sent while it is stopped is kept and the tool answers `no_reply`. The test command client and the fleet API (M2) still call `declare_topology`.
 - **Silence is a result, not an error.** `send_command` returns `result: no_reply` with the likely causes (link loss, a REPLY_DELAY longer than the wait, an unknown drone, a stopped simulator), and its `timeout_s` goes up to 60 so a 30 s REPLY_DELAY fits. The fleet API's command timeout (M2) treats silence the same way.
+
+## Amendment · 2026-11-24 · `broker-init` owns the topology (M2, #23)
+
+Decided with the M2 design ([ADR 0013](0013-least-privilege-infrastructure.md)).
+
+- **The fleet services declare nothing.** A one-shot `broker-init` declares the whole topology through `declare_topology` and `declare_ingestor_queue` and creates the per-service broker users. The fleet API does not call `declare_topology`, which replaces "Command senders declare it too" for the API (and the M2 sentence in the amendment above). Commands sent before the simulator first starts are still kept, because `broker-init` has already declared `drone_sim.cmd`.
+- **The simulator and the test command client still declare**, with the admin broker user (test profile only, until M4).
+- **The MCP exception stands:** the MCP server declares only `fleet.cmd`, `fleet.telemetry` and its exclusive reply queue, never `drone_sim.cmd`. Once `broker-init` has run, `drone_sim.cmd` exists even if the simulator never started, so in a full stack a stopped simulator shows up as `no_reply` rather than unroutable. In the simulator-only profile the signal works as before.
+- **The API's command timeout is the ingestor's sweeper** (ADR 0010); it treats silence as the amendment above says.

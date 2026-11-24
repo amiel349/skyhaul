@@ -1,8 +1,10 @@
 """RabbitMQ names, routing keys and the one place that declares exchanges and queues.
 
-Every service declares through ``declare_topology``, so they can never disagree on queue
+Everything that declares goes through these helpers, so declarers can never disagree on queue
 arguments (RabbitMQ answers a mismatched re-declare with PRECONDITION_FAILED). Declaring is
-idempotent: same names, same arguments, any number of times.
+idempotent: same names, same arguments, any number of times. From M2 the one-shot
+``broker-init`` declares the whole topology and the fleet services declare nothing; the
+simulator, the test clients and the MCP server still declare what they need (ADR 0013).
 """
 
 from __future__ import annotations
@@ -50,6 +52,27 @@ SIM_COMMAND_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
         "x-max-length": MAX_QUEUE_LENGTH,
         "x-max-length-bytes": MAX_QUEUE_BYTES,
         "x-overflow": "reject-publish",
+    }
+)
+
+# The ingestor consumes every telemetry message, ACK and NACK included (ADR 0010, 0013).
+INGESTOR_QUEUE: Final = "ingestor.telemetry"
+INGESTOR_MAX_QUEUE_LENGTH: Final = 100_000
+# 100,000 messages of at most MAX_MESSAGE_BYTES each; a unit test keeps this equal.
+INGESTOR_MAX_QUEUE_BYTES: Final = 6_553_600_000
+INGESTOR_QUEUE_ARGUMENTS: Final[Mapping[str, Any]] = MappingProxyType(
+    {
+        "x-queue-type": "quorum",
+        # A second replica waits as a hot standby instead of splitting the stream.
+        "x-single-active-consumer": True,
+        "x-delivery-limit": 5,
+        "x-dead-letter-exchange": DEAD_LETTER_EXCHANGE,
+        "x-max-length": INGESTOR_MAX_QUEUE_LENGTH,
+        "x-max-length-bytes": INGESTOR_MAX_QUEUE_BYTES,
+        # A stopped ingestor must never push back on the simulator's publisher (its nack
+        # retries would stall the outbox, and commands with it). The oldest telemetry goes
+        # first; a lost ACK shows up as a TIMED_OUT command (ADR 0013).
+        "x-overflow": "drop-head",
     }
 )
 
@@ -101,6 +124,16 @@ def declare_topology(channel: Any) -> None:
         SIM_COMMAND_QUEUE, durable=True, arguments=dict(SIM_COMMAND_QUEUE_ARGUMENTS)
     )
     channel.queue_bind(SIM_COMMAND_QUEUE, COMMAND_EXCHANGE, routing_key=ALL_DRONES_BINDING)
+
+
+def declare_ingestor_queue(channel: Any) -> None:
+    """Declare the ingestor's queue, bound to every drone message on fleet.telemetry.
+
+    In M2 ``broker-init`` calls this together with ``declare_topology``; the ingestor itself
+    has no configure permission and declares nothing (ADR 0013). Idempotent.
+    """
+    channel.queue_declare(INGESTOR_QUEUE, durable=True, arguments=dict(INGESTOR_QUEUE_ARGUMENTS))
+    channel.queue_bind(INGESTOR_QUEUE, TELEMETRY_EXCHANGE, routing_key=ALL_DRONES_BINDING)
 
 
 def declare_debug_tap(channel: Any) -> None:
