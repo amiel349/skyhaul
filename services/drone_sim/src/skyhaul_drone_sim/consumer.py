@@ -9,7 +9,8 @@ The reaction to each kind of bad message follows design note section 3:
 - unsupported version: NACK only when the routing key names the drone the hint claims,
   otherwise dead-letter;
 - unknown type, invalid payload, a raising handler: NACK, then ack (never redelivered);
-- unknown drone: no reply, counted, acked.
+- unknown drone: no reply, counted, acked;
+- drone in an injected LINK_LOSS: no reply, acked (so never redelivered).
 
 Every reply is stamped with its namespace's epoch under the board lock (inside the
 dispatch transaction, or with `JobsBoard.stamp` for a NACK made before dispatch), so a
@@ -264,6 +265,10 @@ class Consumer:
             )
         elif result.unknown_drone:
             log.warning("command for an unknown drone, not answered", extra=context)
+        elif result.link_lost:
+            log.info("command dropped: the drone is in an injected link loss", extra=context)
+        elif result.delayed:
+            log.info("command handled, reply delayed by an injected fault", extra=context)
         elif result.duplicate:
             log.info("duplicate command, cached reply sent again", extra=context)
         else:
