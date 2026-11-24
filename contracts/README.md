@@ -12,6 +12,8 @@ The one definition of every drone message, and the one Codec that checks it. Bac
 | `src/skyhaul_contracts/v1/_generated/` | Pydantic models | No, run `make contracts` |
 | `ts/` | TypeScript types, imported in `web/` as `@skyhaul/contracts` | No, run `make contracts` |
 | `scripts/generate.py`, `scripts/gen_ts.mjs` | The generators (`make contracts`, `make contracts-check`) | Yes |
+| `openapi/fleet-api.v1.json` | OpenAPI 3.1 contract of the fleet API and its Socket.IO events ([M2 design](../docs/architecture/m2-design.md)) | Yes, contract changes land here first |
+| `openapi/meta/` | The official OpenAPI 3.1 meta-schema, vendored for the validity test | No |
 | `tests/` | Contract, unit, concurrency and integration tests | Yes |
 
 ## Use
@@ -22,7 +24,7 @@ from skyhaul_contracts.topology import COMMAND_EXCHANGE, declare_topology
 from skyhaul_contracts.v1 import TakeoffPayload
 
 codec = Codec()  # one instance per process; thread-safe
-declare_topology(channel)  # idempotent; command senders declare too
+declare_topology(channel)  # idempotent; fleet services leave it to broker-init (ADR 0013)
 msg = codec.new(MessageType.TAKEOFF, "gw0-d001", TakeoffPayload(altitude_m=30), correlation_id)
 channel.basic_publish(
     COMMAND_EXCHANGE,

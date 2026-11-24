@@ -1,0 +1,3184 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Skyhaul fleet API",
+    "version": "1.0.0-m2",
+    "description": "REST contract of the fleet API (services/api), and the Socket.IO event payloads it pushes. Design: docs/architecture/m2-design.md. The backend implements to this file and the UI generates types from it. Every operation needs a bearer JWT unless it has security: []. x-permission names the permission the server checks. Skyhaul serves a single organization. Lists use keyset pagination: ?limit= and an opaque ?cursor=, answered as {items, next_cursor}.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth"
+    },
+    {
+      "name": "users"
+    },
+    {
+      "name": "drones"
+    },
+    {
+      "name": "commands"
+    },
+    {
+      "name": "missions"
+    },
+    {
+      "name": "alerts"
+    },
+    {
+      "name": "audit"
+    },
+    {
+      "name": "health"
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchange email and password for an access token",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "getMe",
+        "tags": [
+          "auth"
+        ],
+        "summary": "The authenticated user",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-permission": "any",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/users": {
+      "get": {
+        "operationId": "listUsers",
+        "tags": [
+          "users"
+        ],
+        "summary": "List users",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "x-permission": "user:admin"
+      },
+      "post": {
+        "operationId": "createUser",
+        "tags": [
+          "users"
+        ],
+        "summary": "Create a user",
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "x-permission": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/users/{user_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserId"
+        }
+      ],
+      "patch": {
+        "operationId": "updateUser",
+        "tags": [
+          "users"
+        ],
+        "summary": "Change a user's role or active flag",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "x-permission": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/drones": {
+      "get": {
+        "operationId": "listDrones",
+        "tags": [
+          "drones"
+        ],
+        "summary": "List drones with their latest state",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DronePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "x-permission": "fleet:read"
+      },
+      "post": {
+        "operationId": "createDrone",
+        "tags": [
+          "drones"
+        ],
+        "summary": "Register a drone",
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Drone"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DroneCreate"
+              }
+            }
+          }
+        },
+        "x-permission": "drone:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/drones/{drone_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DroneIdPath"
+        }
+      ],
+      "get": {
+        "operationId": "getDrone",
+        "tags": [
+          "drones"
+        ],
+        "summary": "One drone with its latest state",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Drone"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "fleet:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "deleteDrone",
+        "tags": [
+          "drones"
+        ],
+        "summary": "Soft-delete a drone (its id is never reused)",
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-permission": "drone:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/drones/{drone_id}/telemetry": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DroneIdPath"
+        }
+      ],
+      "get": {
+        "operationId": "listTelemetry",
+        "tags": [
+          "drones"
+        ],
+        "summary": "Stored telemetry, newest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/TelemetryTypeQuery"
+          },
+          {
+            "$ref": "#/components/parameters/Since"
+          },
+          {
+            "$ref": "#/components/parameters/Until"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryRecordPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "fleet:read"
+      }
+    },
+    "/drones/{drone_id}/commands": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DroneIdPath"
+        }
+      ],
+      "get": {
+        "operationId": "listDroneCommands",
+        "tags": [
+          "commands"
+        ],
+        "summary": "Commands sent to a drone, newest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "fleet:read"
+      },
+      "post": {
+        "operationId": "sendCommand",
+        "tags": [
+          "commands"
+        ],
+        "summary": "Send a command. 202 means broker-confirmed; the reply arrives as command.updated.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted and broker-confirmed (status SENT), or an Idempotency-Key replay",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Command"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "x-permission": "command:send"
+      }
+    },
+    "/commands/{command_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/CommandId"
+        }
+      ],
+      "get": {
+        "operationId": "getCommand",
+        "tags": [
+          "commands"
+        ],
+        "summary": "One command",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Command"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "fleet:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/missions": {
+      "get": {
+        "operationId": "listMissions",
+        "tags": [
+          "missions"
+        ],
+        "summary": "List missions, newest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/MissionStateQuery"
+          },
+          {
+            "$ref": "#/components/parameters/DroneIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "x-permission": "mission:read"
+      },
+      "post": {
+        "operationId": "createMission",
+        "tags": [
+          "missions"
+        ],
+        "summary": "Plan a mission, and with start=true launch it",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created (DISPATCHING when start=true, else PLANNED), or an Idempotency-Key replay",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionDispatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionCreate"
+              }
+            }
+          }
+        },
+        "x-permission": "mission:write"
+      }
+    },
+    "/missions/{mission_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MissionIdPath"
+        }
+      ],
+      "get": {
+        "operationId": "getMission",
+        "tags": [
+          "missions"
+        ],
+        "summary": "One mission",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mission"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "mission:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/missions/{mission_id}/events": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MissionIdPath"
+        }
+      ],
+      "get": {
+        "operationId": "listMissionEvents",
+        "tags": [
+          "missions"
+        ],
+        "summary": "Mission history, oldest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionEventPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "mission:read"
+      }
+    },
+    "/missions/{mission_id}/start": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MissionIdPath"
+        }
+      ],
+      "post": {
+        "operationId": "startMission",
+        "tags": [
+          "missions"
+        ],
+        "summary": "Launch a PLANNED mission",
+        "responses": {
+          "202": {
+            "description": "Dispatching",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionDispatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-permission": "mission:write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/missions/{mission_id}/abort": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MissionIdPath"
+        }
+      ],
+      "post": {
+        "operationId": "abortMission",
+        "tags": [
+          "missions"
+        ],
+        "summary": "Abort a DISPATCHING or ACTIVE mission; ABORTED once the drone reports its final status",
+        "responses": {
+          "202": {
+            "description": "Abort command sent",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionDispatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionAbort"
+              }
+            }
+          }
+        },
+        "x-permission": "mission:write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/missions/{mission_id}/cancel": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MissionIdPath"
+        }
+      ],
+      "post": {
+        "operationId": "cancelMission",
+        "tags": [
+          "missions"
+        ],
+        "summary": "Cancel a PLANNED mission",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mission"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-permission": "mission:write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/alerts": {
+      "get": {
+        "operationId": "listAlerts",
+        "tags": [
+          "alerts"
+        ],
+        "summary": "List alerts, newest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/OpenQuery"
+          },
+          {
+            "$ref": "#/components/parameters/DroneIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "x-permission": "alert:read"
+      }
+    },
+    "/alerts/{alert_id}/ack": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AlertId"
+        }
+      ],
+      "post": {
+        "operationId": "ackAlert",
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Acknowledge an alert (idempotent)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Alert"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-permission": "alert:ack",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/audit": {
+      "get": {
+        "operationId": "listAudit",
+        "tags": [
+          "audit"
+        ],
+        "summary": "Audit log, newest first",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/Since"
+          },
+          {
+            "$ref": "#/components/parameters/Until"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEntryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "x-permission": "audit:read"
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "tags": [
+          "health"
+        ],
+        "summary": "Process is alive",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz",
+        "tags": [
+          "health"
+        ],
+        "summary": "Database, Redis and command publisher are reachable",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "HS256, iss=skyhaul-api, aud=skyhaul, 15 min. Claims identify the user; the role is read from the database on every request."
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "The request id used in logs.",
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds until the limit resets.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        },
+        "description": "Page size."
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/Cursor"
+        },
+        "description": "next_cursor from the previous page."
+      },
+      "Since": {
+        "name": "since",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": "Inclusive lower bound on ts."
+      },
+      "Until": {
+        "name": "until",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": "Exclusive upper bound on ts."
+      },
+      "TelemetryTypeQuery": {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/TelemetryType"
+        },
+        "description": "Only this telemetry type."
+      },
+      "MissionStateQuery": {
+        "name": "state",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/MissionLifecycleState"
+        },
+        "description": "Only missions in this state."
+      },
+      "DroneIdQuery": {
+        "name": "drone_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/DroneId"
+        },
+        "description": "Only this drone."
+      },
+      "OpenQuery": {
+        "name": "open",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        },
+        "description": "true: only alerts not cleared; false: only cleared ones."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "Scoped to the user. A replay with the same key returns the original resource and publishes nothing.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        }
+      },
+      "DroneIdPath": {
+        "name": "drone_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/DroneId"
+        }
+      },
+      "UserId": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "CommandId": {
+        "name": "command_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "MissionIdPath": {
+        "name": "mission_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "AlertId": {
+        "name": "alert_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "RequestIdHeader": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "Accepted if it is a UUID, otherwise replaced by a generated one. Echoed in the response and in every log line.",
+        "schema": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed request (bad JSON, bad query parameter, bad cursor).",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid or expired token, or an inactive user.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The role lacks the permission.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The resource does not exist.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Live mission exists, drone id taken, or illegal state transition.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Body over 64 KiB.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "Body is not application/json.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unprocessable": {
+        "description": "Validation failed; see fields.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "command_not_sent: the broker did not confirm the publish, or the publisher queue is full.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Uuid": {
+        "description": "Canonical lowercase UUID string.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "DroneId": {
+        "description": "Globally unique drone id. One safe routing-key word.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "Timestamp": {
+        "description": "RFC 3339 UTC timestamp. Drone-clock fields (ts) keep the wire form with milliseconds and a Z suffix.",
+        "type": "string",
+        "format": "date-time"
+      },
+      "Cursor": {
+        "description": "Opaque keyset cursor. Clients must not parse or build it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "Lat": {
+        "type": "number",
+        "minimum": -90,
+        "maximum": 90
+      },
+      "Lon": {
+        "type": "number",
+        "minimum": -180,
+        "exclusiveMaximum": 180
+      },
+      "GeoPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "$ref": "#/components/schemas/Lat"
+          },
+          "lon": {
+            "$ref": "#/components/schemas/Lon"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ]
+      },
+      "Waypoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "$ref": "#/components/schemas/Lat"
+          },
+          "lon": {
+            "$ref": "#/components/schemas/Lon"
+          },
+          "altitude_m": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "altitude_m"
+        ]
+      },
+      "FlightState": {
+        "type": "string",
+        "enum": [
+          "LANDED",
+          "ARMED",
+          "TAKING_OFF",
+          "HOVERING",
+          "FLYING",
+          "RETURNING",
+          "LANDING"
+        ]
+      },
+      "CommandType": {
+        "description": "Every drone command type (contracts CommandType).",
+        "type": "string",
+        "enum": [
+          "ARM",
+          "TAKEOFF",
+          "GOTO",
+          "RETURN_HOME",
+          "LAND",
+          "SET_SPEED",
+          "START_MISSION"
+        ]
+      },
+      "DirectCommandType": {
+        "description": "Command types accepted by POST /drones/{drone_id}/commands. START_MISSION goes only through /missions, so the missions table stays the source of truth.",
+        "type": "string",
+        "enum": [
+          "ARM",
+          "TAKEOFF",
+          "GOTO",
+          "RETURN_HOME",
+          "LAND",
+          "SET_SPEED"
+        ]
+      },
+      "NackReason": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN_TYPE",
+          "UNSUPPORTED_VERSION",
+          "INVALID_PAYLOAD",
+          "INVALID_STATE",
+          "MISSION_ACTIVE",
+          "BATTERY_TOO_LOW",
+          "OUT_OF_BOUNDS",
+          "INJECTED",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "AlertSeverity": {
+        "type": "string",
+        "enum": [
+          "INFO",
+          "WARNING",
+          "CRITICAL"
+        ]
+      },
+      "FleetAlertCode": {
+        "description": "The contracts AlertCode plus LINK_LOST, which the backend derives because a drone cannot report its own silence.",
+        "type": "string",
+        "enum": [
+          "LOW_BATTERY",
+          "CRITICAL_BATTERY",
+          "GEOFENCE_BREACH",
+          "LINK_RESTORED",
+          "LINK_LOST"
+        ]
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "dispatcher",
+          "viewer"
+        ]
+      },
+      "CommandStatus": {
+        "description": "PENDING: stored, not yet confirmed by the broker. SENT: broker-confirmed. ACKED/NACKED: the drone replied. TIMED_OUT: no reply within the command timeout (a later reply still wins and sets late=true). FAILED: never reached the broker.",
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "SENT",
+          "ACKED",
+          "NACKED",
+          "TIMED_OUT",
+          "FAILED"
+        ]
+      },
+      "MissionLifecycleState": {
+        "description": "Backend mission state, a superset of the drone's MISSION_STATUS states. COMPLETED, ABORTED, FAILED and CANCELLED are terminal.",
+        "type": "string",
+        "enum": [
+          "PLANNED",
+          "DISPATCHING",
+          "ACTIVE",
+          "COMPLETED",
+          "ABORTED",
+          "FAILED",
+          "CANCELLED"
+        ]
+      },
+      "LinkState": {
+        "type": "string",
+        "enum": [
+          "UP",
+          "LOST"
+        ]
+      },
+      "Error": {
+        "description": "The one error shape for every non-2xx response (same as the simulator control API).",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "Stable machine-readable code, e.g. not_found, validation_failed, mission_live, command_not_sent.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "detail": {
+            "description": "Human-readable text. Never echoes headers, tokens or input values.",
+            "type": "string",
+            "maxLength": 256
+          },
+          "fields": {
+            "description": "Validation failures by field path (e.g. payload.altitude_m). Messages only, never input values.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        },
+        "required": [
+          "error",
+          "detail",
+          "request_id"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "HS256 JWT, valid for expires_in seconds. No refresh token in M2."
+          },
+          "token_type": {
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "user"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "is_active",
+          "created_at"
+        ]
+      },
+      "UserCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024,
+            "writeOnly": true
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "role"
+        ]
+      },
+      "UserUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "minProperties": 1
+      },
+      "DronePosition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lat": {
+            "$ref": "#/components/schemas/Lat"
+          },
+          "lon": {
+            "$ref": "#/components/schemas/Lon"
+          },
+          "altitude_m": {
+            "type": "number"
+          },
+          "heading_deg": {
+            "type": "number"
+          },
+          "ground_speed_mps": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "altitude_m",
+          "heading_deg",
+          "ground_speed_mps"
+        ]
+      },
+      "DroneLiveState": {
+        "description": "Latest known state from Redis. Fields are null until the matching telemetry has arrived.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "flight_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "armed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "battery_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "est_remaining_s": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DronePosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mission_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "link": {
+            "$ref": "#/components/schemas/LinkState"
+          },
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "flight_state",
+          "armed",
+          "battery_pct",
+          "est_remaining_s",
+          "position",
+          "target",
+          "mission_id",
+          "link",
+          "last_heartbeat_at",
+          "last_seen_at",
+          "ts"
+        ]
+      },
+      "Drone": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "home": {
+            "$ref": "#/components/schemas/GeoPoint"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DroneLiveState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "home",
+          "created_at",
+          "state"
+        ]
+      },
+      "DroneCreate": {
+        "description": "Register a drone. 409 drone_id_taken if the id is registered, including soft-deleted drones (ids are never reused).",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "home": {
+            "$ref": "#/components/schemas/GeoPoint"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "home"
+        ]
+      },
+      "TelemetryType": {
+        "description": "Stored telemetry types. HEARTBEAT is not stored; ACK and NACK update commands.",
+        "type": "string",
+        "enum": [
+          "POSITION",
+          "BATTERY",
+          "MISSION_STATUS",
+          "ALERT"
+        ]
+      },
+      "TelemetryRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "msg_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "type": {
+            "$ref": "#/components/schemas/TelemetryType"
+          },
+          "ts": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "payload": {
+            "description": "The message payload as defined in contracts/schemas/v1/telemetry (TS types in @skyhaul/contracts).",
+            "type": "object"
+          }
+        },
+        "required": [
+          "msg_id",
+          "drone_id",
+          "type",
+          "ts",
+          "received_at",
+          "correlation_id",
+          "payload"
+        ]
+      },
+      "CommandRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/DirectCommandType"
+          },
+          "payload": {
+            "description": "The command payload as defined in contracts/schemas/v1/commands. Validated by the contracts Codec; failures are 422 with field paths.",
+            "type": "object",
+            "default": {}
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "Command": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "Equals the message msg_id."
+          },
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "mission_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/CommandType"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CommandStatus"
+          },
+          "nack_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NackReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nack_detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "late": {
+            "type": "boolean",
+            "description": "The reply arrived after TIMED_OUT."
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "drone_id",
+          "mission_id",
+          "type",
+          "payload",
+          "correlation_id",
+          "status",
+          "nack_reason",
+          "nack_detail",
+          "late",
+          "requested_by",
+          "created_at",
+          "sent_at",
+          "replied_at"
+        ]
+      },
+      "MissionCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "waypoints": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/Waypoint"
+            }
+          },
+          "start": {
+            "type": "boolean",
+            "default": false,
+            "description": "Launch at once: ARM (if the drone is LANDED) and START_MISSION are pipelined without waiting."
+          }
+        },
+        "required": [
+          "drone_id",
+          "waypoints"
+        ]
+      },
+      "MissionAbort": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "RETURN_HOME",
+              "LAND"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "Mission": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "Sent to the drone as mission_id."
+          },
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MissionLifecycleState"
+          },
+          "waypoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Waypoint"
+            }
+          },
+          "correlation_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "drone_id",
+          "state",
+          "waypoints",
+          "correlation_id",
+          "created_by",
+          "created_at",
+          "started_at",
+          "ended_at",
+          "failure_reason"
+        ]
+      },
+      "MissionDispatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mission": {
+            "$ref": "#/components/schemas/Mission"
+          },
+          "commands": {
+            "description": "Commands this request published, in send order. Empty when nothing was sent.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Command"
+            }
+          }
+        },
+        "required": [
+          "mission",
+          "commands"
+        ]
+      },
+      "MissionEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "mission_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "created",
+              "state_changed",
+              "command",
+              "status"
+            ]
+          },
+          "data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "mission_id",
+          "ts",
+          "kind",
+          "data"
+        ]
+      },
+      "Alert": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "code": {
+            "$ref": "#/components/schemas/FleetAlertCode"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Data, never instructions."
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "DRONE",
+              "DERIVED"
+            ]
+          },
+          "raised_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleared_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "drone_id",
+          "code",
+          "severity",
+          "message",
+          "value",
+          "source",
+          "raised_at",
+          "acknowledged_by",
+          "acknowledged_at",
+          "cleared_at"
+        ]
+      },
+      "AuditEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action": {
+            "type": "string"
+          },
+          "target_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure",
+              "denied"
+            ]
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "description": "Never contains secrets."
+          }
+        },
+        "required": [
+          "id",
+          "actor_user_id",
+          "action",
+          "target_type",
+          "target_id",
+          "outcome",
+          "ip",
+          "ts",
+          "data"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "ok"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "Readiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "db": {
+                "type": "boolean"
+              },
+              "redis": {
+                "type": "boolean"
+              },
+              "publisher": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "db",
+              "redis",
+              "publisher"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ]
+      },
+      "SocketAuth": {
+        "description": "Socket.IO connect auth payload for namespace /fleet. The server joins rooms itself; clients send no events in M2.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "The access token. Sent in the Socket.IO auth payload, never in the query string."
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "SocketConnectError": {
+        "description": "Payload of connect_error, and of the disconnect reason when the expiry sweep closes a session.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string",
+            "enum": [
+              "unauthorized",
+              "token_expired"
+            ]
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "DroneStateEvent": {
+        "description": "Socket.IO event drone.state: at most once per drone per ingestor flush.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "drone_id": {
+            "$ref": "#/components/schemas/DroneId"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DroneLiveState"
+          }
+        },
+        "required": [
+          "drone_id",
+          "state"
+        ]
+      },
+      "CommandUpdatedEvent": {
+        "description": "Socket.IO event command.updated. Sent to the dispatcher and admin rooms only.",
+        "$ref": "#/components/schemas/Command"
+      },
+      "MissionUpdatedEvent": {
+        "description": "Socket.IO event mission.updated.",
+        "$ref": "#/components/schemas/Mission"
+      },
+      "AlertRaisedEvent": {
+        "description": "Socket.IO event alert.raised.",
+        "$ref": "#/components/schemas/Alert"
+      },
+      "AlertUpdatedEvent": {
+        "description": "Socket.IO event alert.updated (acknowledged or cleared).",
+        "$ref": "#/components/schemas/Alert"
+      },
+      "UserPage": {
+        "description": "One page of User items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/User"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "DronePage": {
+        "description": "One page of Drone items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Drone"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "TelemetryRecordPage": {
+        "description": "One page of TelemetryRecord items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelemetryRecord"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "CommandPage": {
+        "description": "One page of Command items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Command"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "MissionPage": {
+        "description": "One page of Mission items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mission"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "MissionEventPage": {
+        "description": "One page of MissionEvent items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissionEvent"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "AlertPage": {
+        "description": "One page of Alert items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Alert"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
+      "AuditEntryPage": {
+        "description": "One page of AuditEntry items. Pass next_cursor back as ?cursor= for the next page; null means this is the last page.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      }
+    }
+  },
+  "x-socketio": {
+    "namespace": "/fleet",
+    "auth": {
+      "$ref": "#/components/schemas/SocketAuth"
+    },
+    "connect_error": {
+      "$ref": "#/components/schemas/SocketConnectError"
+    },
+    "server_events": {
+      "drone.state": {
+        "$ref": "#/components/schemas/DroneStateEvent"
+      },
+      "command.updated": {
+        "$ref": "#/components/schemas/CommandUpdatedEvent"
+      },
+      "mission.updated": {
+        "$ref": "#/components/schemas/MissionUpdatedEvent"
+      },
+      "alert.raised": {
+        "$ref": "#/components/schemas/AlertRaisedEvent"
+      },
+      "alert.updated": {
+        "$ref": "#/components/schemas/AlertUpdatedEvent"
+      }
+    },
+    "client_events": {}
+  }
+}

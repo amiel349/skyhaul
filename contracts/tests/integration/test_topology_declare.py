@@ -76,12 +76,17 @@ def test_declaring_topology_twice_succeeds_with_the_same_arguments(
     for _ in range(2):  # two separate connections, as two services would
         connection, channel = _channel(broker.params)
         topology.declare_topology(channel)
+        topology.declare_ingestor_queue(channel)
         topology.declare_debug_tap(channel)
         connection.close()
 
     connection, channel = _channel(broker.params)
     try:
-        for name in (topology.SIM_COMMAND_QUEUE, topology.DEAD_LETTER_QUEUE):
+        for name in (
+            topology.SIM_COMMAND_QUEUE,
+            topology.DEAD_LETTER_QUEUE,
+            topology.INGESTOR_QUEUE,
+        ):
             channel.queue_declare(name, passive=True)
         for name in (
             topology.COMMAND_EXCHANGE,
@@ -112,11 +117,15 @@ def test_command_and_dead_letter_queues_are_length_bounded_on_the_broker(broker:
     connection, channel = _channel(broker.params)
     try:
         topology.declare_topology(channel)
+        topology.declare_ingestor_queue(channel)
     finally:
         connection.close()
 
     command = _queue_arguments(broker, topology.SIM_COMMAND_QUEUE)
     dead = _queue_arguments(broker, topology.DEAD_LETTER_QUEUE)
+    ingestor = _queue_arguments(broker, topology.INGESTOR_QUEUE)
+
+    assert ingestor == dict(topology.INGESTOR_QUEUE_ARGUMENTS)
 
     assert command["x-max-length"] == 10_000
     assert command["x-max-length-bytes"] == 655_360_000
