@@ -88,6 +88,24 @@ def generate_ts(schemas: Path, version: str, scratch: Path) -> Path:
         ["node", str(script), str(REPO / "web"), str(schemas), str(out), version],  # noqa: S607
         check=True,
     )
+    # The fleet API types (#24): openapi-typescript, a pinned devDependency of web/.
+    openapi = schemas.parents[1] / "openapi" / f"fleet-api.{version}.json"
+    if openapi.exists():
+        (out / "api").mkdir(parents=True, exist_ok=True)
+        subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [  # noqa: S607
+                "pnpm",
+                "--dir",
+                str(REPO / "web"),
+                "exec",
+                "openapi-typescript",
+                str(openapi),
+                "--output",
+                str(out / "api" / f"fleet-api.{version}.ts"),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
     return out
 
 

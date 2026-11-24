@@ -1,6 +1,6 @@
 COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
 
-.PHONY: help setup env up sim down logs ps lint typecheck test test-integration contracts contracts-check check secrets
+.PHONY: help setup env up sim down logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -50,7 +50,20 @@ contracts: ## Regenerate Pydantic models and TS types from contracts/schemas
 contracts-check: ## Fail if the generated contracts are out of date
 	uv run python contracts/scripts/generate.py --check
 
+OPENAPI_CONTRACT := contracts/openapi/fleet-api.v1.json
+SPEC_APP := 'skyhaul_api:create_spec_app()'
+
+# The API TS types (contracts/ts/api) are generated with the other contract types, so
+# `make contracts` regenerates them and `make contracts-check` catches their drift.
+openapi: contracts ## Regenerate the API TS types from the OpenAPI contract (same as contracts)
+
+openapi-check: ## Fail if the API's exported spec differs from the OpenAPI contract
+	uv run flask --app $(SPEC_APP) spec --check --contract $(OPENAPI_CONTRACT)
+
+migrate: ## Run the database migrations of the local stack
+	$(COMPOSE) run --rm migrate
+
 secrets: ## Scan the whole git history for secrets
 	gitleaks git --redact --no-banner -v
 
-check: lint typecheck test contracts-check secrets ## Run everything CI runs (except integration)
+check: lint typecheck test contracts-check openapi-check secrets ## Run everything CI runs (except integration)

@@ -47,13 +47,33 @@ services:
       timeout: 3s
       retries: 10
 
-  api:
+  # One-shot: applies the fleet_core migrations, then exits. The API starts after it succeeds.
+  # Until #29 adds per-service roles, it and the API use the POSTGRES_USER owner role.
+  migrate:
+    image: skyhaul-api:local
     build:
       context: ..
       dockerfile: services/api/Dockerfile
+    command: ["skyhaul-migrate", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?run make env}:${POSTGRES_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    image: skyhaul-api:local
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?run make env}:${POSTGRES_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?run make env}@redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?run make env}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
+      migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
