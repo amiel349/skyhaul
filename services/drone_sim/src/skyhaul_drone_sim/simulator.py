@@ -22,10 +22,12 @@ from typing import Final
 from skyhaul_contracts import Codec
 
 from skyhaul_drone_sim.amqp import BrokerUnavailable, Connect, connector
+from skyhaul_drone_sim.behaviors import add_drone, spawn_drone
 from skyhaul_drone_sim.board import JobsBoard
 from skyhaul_drone_sim.clock import Clock, SystemClock
 from skyhaul_drone_sim.config import SimConfig
 from skyhaul_drone_sim.consumer import Consumer
+from skyhaul_drone_sim.model import GeoPoint
 from skyhaul_drone_sim.outbox import SENTINEL, Outbox, new_outbox
 from skyhaul_drone_sim.publisher import Publisher
 from skyhaul_drone_sim.registry import Registry
@@ -56,8 +58,7 @@ class Simulator:
         self.codec = Codec()
         self.board = JobsBoard()
         self.outbox = new_outbox(cfg.outbox_max)
-        for drone_id in cfg.drones:
-            self.board.add_drone(drone_id)
+        self._spawn(cfg.drones)
         self.publisher = Publisher(
             codec=self.codec,
             outbox=self.outbox,
@@ -88,6 +89,21 @@ class Simulator:
             prefetch=cfg.prefetch,
             debug_tap=cfg.debug_tap,
         )
+
+    def _spawn(self, drone_ids: tuple[str, ...]) -> None:
+        """Stand-in for #9's spawn: the `SIM_DRONES` ids, landed at the configured home."""
+        now = self.clock.monotonic()
+        home = GeoPoint(self.cfg.home_lat, self.cfg.home_lon)
+        with self.board.transaction() as world:
+            for drone_id in drone_ids:
+                drone, jobs = spawn_drone(
+                    drone_id,
+                    home=home,
+                    now=now,
+                    seed=self.cfg.seed,
+                    geofence_radius_m=self.cfg.geofence_radius_m,
+                )
+                add_drone(world, drone, jobs)
 
     def stop(self) -> None:
         """Ask every thread to stop. Safe from a signal handler or any thread."""

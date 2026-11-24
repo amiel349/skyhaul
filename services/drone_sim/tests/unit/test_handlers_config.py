@@ -4,12 +4,12 @@ import threading
 
 import pytest
 from pika.exceptions import AMQPConnectionError
+from sim_support.drones import board_with
 from sim_support.messages import DRONE, command, payload_of
 from skyhaul_contracts import CommandType, MessageType
 from skyhaul_drone_sim.amqp import BrokerUnavailable, connect_with_retry
-from skyhaul_drone_sim.board import JobsBoard
 from skyhaul_drone_sim.config import ConfigError, SimConfig
-from skyhaul_drone_sim.handlers import NOT_IMPLEMENTED_DETAIL, registry
+from skyhaul_drone_sim.handlers import registry
 
 ENV = {"RABBITMQ_HOST": "rabbitmq", "RABBITMQ_USER": "sim", "RABBITMQ_PASSWORD": "pw"}
 
@@ -20,8 +20,7 @@ def test_every_command_type_has_a_handler() -> None:
 
 @pytest.mark.parametrize("type", list(CommandType))
 def test_every_command_type_gets_an_ack_or_an_explicit_nack(type: CommandType) -> None:
-    board = JobsBoard()
-    board.add_drone(DRONE)
+    board = board_with(DRONE)
     msg = command(type)
 
     with board.transaction() as world:
@@ -31,11 +30,11 @@ def test_every_command_type_gets_an_ack_or_an_explicit_nack(type: CommandType) -
     assert result.error is None
     assert reply.message.correlation_id == msg.correlation_id
     assert payload_of(reply)["command_msg_id"] == msg.msg_id
-    if type is CommandType.ARM:  # PLACEHOLDER until #8
+    if type in (CommandType.ARM, CommandType.SET_SPEED):  # what a landed drone accepts
         assert reply.message.type is MessageType.ACK
     else:
         assert reply.message.type is MessageType.NACK
-        assert payload_of(reply)["detail"] == NOT_IMPLEMENTED_DETAIL
+        assert payload_of(reply)["reason"] == "INVALID_STATE"
 
 
 def test_config_from_env_uses_defaults_for_everything_but_secrets() -> None:
@@ -105,3 +104,11 @@ def test_stop_while_retrying_gives_up_at_once() -> None:
 
     with pytest.raises(BrokerUnavailable, match="stopped"):
         connect_with_retry(refuse, "publisher", 60.0, stop)
+
+
+def test_sim_drones_is_bounded_to_1000_ids() -> None:
+    ids = ",".join(f"main-d{n:04d}" for n in range(1001))
+
+    with pytest.raises(ConfigError, match="SIM_DRONES must list at most 1000 drones"):
+        SimConfig.from_env({**ENV, "SIM_DRONES": ids})
+    assert len(SimConfig.from_env({**ENV, "SIM_DRONES": ids.rsplit(",", 1)[0]}).drones) == 1000

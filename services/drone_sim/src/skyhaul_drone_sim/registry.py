@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
-from skyhaul_contracts import CommandType, Message, NackReason
+from skyhaul_contracts import CommandType, Message, MessageType, NackReason
 
 from skyhaul_drone_sim.board import World
 from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
@@ -21,6 +21,7 @@ type Handler = Callable[[World, Message[Any], float], list[Outgoing]]
 
 INTERNAL_ERROR_DETAIL: Final = "the command could not be handled"
 UNKNOWN_TYPE_DETAIL: Final = "no handler for this command type"
+_REPLY_TYPES: Final = frozenset({MessageType.ACK, MessageType.NACK})
 
 
 class DuplicateHandlerError(RuntimeError):
@@ -38,6 +39,8 @@ class DispatchResult:
     replies: list[Outgoing] = field(default_factory=list)
     error: Exception | None = None
     unknown_drone: bool = False
+    duplicate: bool = False
+    """The msg_id was handled before: `replies` are the cached ones, nothing was applied."""
 
 
 class Registry:
@@ -81,16 +84,26 @@ class Registry:
         discarded (call dispatch once per transaction).
 
         Steps, in the approved order (design note section 5):
-        1. Unknown drone: count it, return no replies (this PR).
+        1. Unknown drone: count it, return no replies.
         2. Link loss: return [] (#10).
-        3. Dedup by msg_id: return the cached replies (#9).
-        4. Injected NACK (#10), else the handler (this PR). No handler: NACK UNKNOWN_TYPE.
-        5. Cache the replies (#9).
+        3. Dedup by msg_id: return the cached replies, apply nothing.
+        4. Injected NACK (#10), else the handler. No handler: NACK UNKNOWN_TYPE.
+        5. Cache the ACK or NACK (also an INTERNAL_ERROR one), at most DEDUP_CACHE_SIZE
+           per drone.
         6. REPLY_DELAY fault: schedule the replies and return [] (#10).
         """
-        if not world.has_drone(command.drone_id):
+        drone = world.drone(command.drone_id)
+        if drone is None:
             world.count_unknown_drone_command()
             return DispatchResult(unknown_drone=True)
+        cached = drone.recent_cmds.get(command.msg_id)
+        if cached is not None:
+            return DispatchResult(list(cached), duplicate=True)
+        result = self._run(world, command, now)
+        _remember(world, command, result.replies)
+        return result
+
+    def _run(self, world: World, command: Message[Any], now: float) -> DispatchResult:
         handler = self._handler_for(command)
         if handler is None:
             return DispatchResult(
@@ -116,6 +129,14 @@ class Registry:
             return self._handlers.get(CommandType(command.type.value))
         except ValueError:  # a telemetry type sent as a command
             return None
+
+
+def _remember(world: World, command: Message[Any], replies: list[Outgoing]) -> None:
+    """Cache the command's own reply. Telemetry a handler also returned (a mission's final
+    status) is not replayed for a duplicate."""
+    drone = world.drone(command.drone_id)  # re-read: a failed handler's discard dropped it
+    if drone is not None:
+        drone.remember(command.msg_id, [r for r in replies if r.message.type in _REPLY_TYPES])
 
 
 def _name(handler: Handler) -> str:
