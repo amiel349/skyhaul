@@ -21,12 +21,23 @@ PUT_POLL_S: Final = 0.5
 """How long one blocking put waits before checking the stop event again."""
 
 
+UNSTAMPED: Final = -1
+"""The epoch of a message nobody stamped yet. It is never current, so it is never sent."""
+
+
 @dataclass(frozen=True, slots=True)
 class Outgoing:
-    """One message the publisher should send. `#9` adds `namespace` and `epoch`."""
+    """One message the publisher should send.
+
+    `namespace` and `epoch` say which namespace epoch produced it (ADR 0009). The board
+    stamps them under its lock (`JobsBoard.stamp`, `World.stamp`, `due`), and the publisher
+    drops a message whose epoch is no longer current. Unstamped messages are dropped too.
+    """
 
     message: Message[BaseModel]
     persistent: bool
+    namespace: str = ""
+    epoch: int = UNSTAMPED
 
 
 class Sentinel(Enum):

@@ -304,8 +304,9 @@ def test_tick_runs_on_every_call_and_its_events_are_returned_even_when_not_due()
     first = board.due(now=1.0, dt=0.1).messages
     second = board.due(now=1.1, dt=0.1).messages
 
-    assert first == [event]
-    assert second == [event]
+    stamped = dataclasses.replace(event, namespace="main", epoch=0)  # stamped by due()
+    assert first == [stamped]
+    assert second == [stamped]
     assert only_job(board)["values"] == {"ticks": 2}
 
 
@@ -424,7 +425,7 @@ def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_
 
     result = board.due(now=1.0, dt=0.1)
 
-    assert result.messages == [low]
+    assert result.messages == [dataclasses.replace(low, namespace="main", epoch=0)]
     assert [(error.key, type(error.error)) for error in result.errors] == [
         (("main-d001", "HEARTBEAT"), ValueError)
     ]

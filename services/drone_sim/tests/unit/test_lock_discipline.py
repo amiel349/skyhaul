@@ -70,6 +70,8 @@ def test_nothing_blocks_under_the_board_lock(monkeypatch: pytest.MonkeyPatch) ->
         registry.dispatch(world, command("ARM", drone_id="main-d999"), now=1.0)
     board.due(now=2.0, dt=0.1)
     board.snapshot()
+    board.reset("other")
+    board.is_current("main", 0)
     board.remove("main-d001", "HEARTBEAT")
 
     assert under_lock == []
@@ -97,5 +99,6 @@ def test_world_offers_only_in_memory_job_operations() -> None:
         "drone",
         "add_drone",
         "count_unknown_drone_command",
+        "stamp",
     }
-    assert [type(value) for value in state] == [dict, dict, bool, dict, dict, int]
+    assert [type(value) for value in state] == [dict, dict, dict, bool, dict, dict, int]
