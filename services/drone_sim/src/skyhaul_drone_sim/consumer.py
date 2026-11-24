@@ -248,6 +248,8 @@ class Consumer:
             )
         elif result.unknown_drone:
             log.warning("command for an unknown drone, not answered", extra=context)
+        elif result.duplicate:
+            log.info("duplicate command, cached reply sent again", extra=context)
         else:
             log.info("command handled", extra=context)
         return Outcome(result.replies)

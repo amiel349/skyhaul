@@ -5,9 +5,11 @@ import logging
 import threading
 
 import pytest
+from sim_support.drones import board_with
 from sim_support.messages import render_minimal
 from skyhaul_drone_sim.board import Job, JobsBoard
 from skyhaul_drone_sim.clock import FakeClock
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outbox, Outgoing, new_outbox
 from skyhaul_drone_sim.scheduler import Scheduler
 
@@ -52,7 +54,7 @@ def drain(outbox: Outbox) -> list[Outgoing]:
 
 def test_scheduler_loop_emits_a_1s_job_exactly_10_times_in_10s() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=render_minimal))
 
     emitted = drain(run_scheduler(board, clock, until=10.0))
@@ -63,7 +65,7 @@ def test_scheduler_loop_emits_a_1s_job_exactly_10_times_in_10s() -> None:
 
 def test_scheduler_loop_after_a_10s_clock_jump_emits_a_1s_job_once_not_10_times() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(Job("main-d001", "HEARTBEAT", 1.0, 0.5, render=render_minimal))
 
     # Call 1 waits 0 s (the first tick), call 2 is the stall.
@@ -75,16 +77,16 @@ def test_scheduler_loop_after_a_10s_clock_jump_emits_a_1s_job_once_not_10_times(
 
 
 def test_scheduler_tick_with_an_empty_board_puts_nothing() -> None:
-    assert drain(run_scheduler(JobsBoard(), FakeClock(), until=2.0)) == []
+    assert drain(run_scheduler(board_with(), FakeClock(), until=2.0)) == []
 
 
 def test_raising_job_is_logged_outside_the_lock_and_other_jobs_keep_emitting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
 
-    def broken(job: Job) -> object:
+    def broken(drone: Drone, job: Job, now: float) -> object:
         raise ZeroDivisionError("render bug")
 
     board.upsert(Job("main-d001", "BATTERY", 1.0, 1.0, render=broken))  # type: ignore[arg-type]
@@ -113,7 +115,7 @@ def test_raising_job_is_logged_outside_the_lock_and_other_jobs_keep_emitting(
 
 def test_a_tick_that_raises_does_not_stop_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(Job("main-d001", "HEARTBEAT", 1.0, 1.0, render=render_minimal))
     real_due = board.due
     calls = 0
@@ -136,7 +138,7 @@ def test_a_tick_that_raises_does_not_stop_the_loop(monkeypatch: pytest.MonkeyPat
 def test_scheduler_thread_stops_promptly_on_the_stop_event() -> None:
     stop = threading.Event()
     scheduler = Scheduler(
-        board=JobsBoard(), outbox=new_outbox(1), clock=FakeClock(), stop=stop, tick_s=0.1
+        board=board_with(), outbox=new_outbox(1), clock=FakeClock(), stop=stop, tick_s=0.1
     )
     thread = threading.Thread(target=scheduler.run)
     thread.start()

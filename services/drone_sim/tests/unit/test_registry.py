@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sim_support.drones import board_with, make_drone
 from sim_support.messages import DRONE, command, outgoing, payload_of, render_minimal
 from skyhaul_contracts import CommandType, Message, MessageType
 from skyhaul_drone_sim.board import Job, JobsBoard, World
@@ -17,8 +18,8 @@ from skyhaul_drone_sim.replies import ack
 
 
 def board_with_drone(drone_id: str = DRONE) -> JobsBoard:
-    board = JobsBoard()
-    board.add_drone(drone_id)
+    board = board_with()
+    board.add_drone(make_drone(drone_id))
     return board
 
 

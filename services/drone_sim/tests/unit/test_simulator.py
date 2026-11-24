@@ -23,6 +23,11 @@ def encoded_arm() -> tuple[str, bytes]:
     return f"drone.{DRONE}.ARM", Codec().encode(command("ARM"))
 
 
+def encoded_set_speed() -> tuple[str, bytes]:
+    """A command a drone accepts in any state, as often as it is sent."""
+    return f"drone.{DRONE}.SET_SPEED", Codec().encode(command("SET_SPEED"))
+
+
 def test_running_simulator_has_exactly_the_three_core_threads() -> None:
     consumers, publishers = FakeBroker(), FakeBroker()
     sim = Simulator(
@@ -67,7 +72,7 @@ def test_commands_are_answered_from_the_publisher_thread_only_and_drained_on_sto
 
     def prepare(connection: FakeConnection) -> None:
         for _ in range(50):
-            connection.deliver(*encoded_arm())
+            connection.deliver(*encoded_set_speed())
         connection.on_poll = lambda: sim.stop() if not connection.pending else None
 
     consumers.prepare = prepare

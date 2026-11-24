@@ -21,9 +21,10 @@ period was validated when the job was built. To change them, upsert a new `Job`
 (`dataclasses.replace`). Only the contents of `Job.values` change in place. The
 board keeps each job's actual next due time itself, next to the job.
 
-Until the drone model lands (#8, #9), tick and render functions receive the job
-itself and keep their state in `Job.values`, and the board knows drones only as a
-set of ids (`add_drone`). #9 replaces both with the `Drone` model.
+Drones live on the board too (`model.Drone`, by id). A job's tick and render get the
+drone it belongs to as well as the job: ticks move the drone and drain its battery,
+renders read it. A job may say when it is finished (`done`): it then emits one final
+message and leaves the board, in the same `due()` call.
 """
 
 import copy
@@ -38,6 +39,7 @@ from typing import Any
 from pydantic import BaseModel
 from skyhaul_contracts import MessageType, TelemetryType
 
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list, new_message
 
 MAX_TICK_DT_S = 0.5
@@ -45,8 +47,11 @@ MAX_TICK_DT_S = 0.5
 
 type JobType = TelemetryType
 type JobKey = tuple[str, JobType]
-type RenderFn = Callable[[Job], BaseModel]
-type TickFn = Callable[[Job, float], list[Outgoing]]
+type RenderFn = Callable[[Drone, Job, float], BaseModel]
+"""`render(drone, job, now)`: the payload from the drone's current state."""
+type TickFn = Callable[[Drone, Job, float], list[Outgoing]]
+"""`tick(drone, job, dt)`: advance the drone by `dt` seconds; returns events (ALERTs)."""
+type DoneFn = Callable[[Drone], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,9 +68,15 @@ class Job:
     """Builds the payload model for `type` from the job's current state."""
     tick: TickFn | None = None
     """Runs on every scheduler tick while the job exists. Returns extra events.
-    It may change `values` in place, nothing else."""
+    It may change the drone and the job's `values` in place, nothing else."""
     correlation_id: str | None = None
     values: dict[str, Any] = field(default_factory=dict)
+    done: DoneFn | None = None
+    """Checked after the tick. Once it returns True the job emits one final message in
+    that same `due()` call, due or not, and is removed (POSITION on touchdown,
+    MISSION_STATUS on COMPLETED or ABORTED)."""
+    final_persistent: bool = False
+    """Whether that final message is persistent. Periodic emissions never are."""
 
     def __post_init__(self) -> None:
         # Normalize "HEARTBEAT" to TelemetryType.HEARTBEAT; an unknown type raises here.
@@ -120,24 +131,33 @@ def _upsert(jobs: dict[JobKey, _Entry], job: Job) -> None:
     existing.job = job
 
 
-def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
-    """Tick the job, then render it if it is due. Raises if the tick or render fails."""
+def _run_job(
+    drone: Drone, job: Job, now: float, dt: float, is_due: bool
+) -> tuple[list[Outgoing], bool]:
+    """Tick the job, then render it if it is due or done. Returns the messages and whether
+    the job is done. Raises if the tick, the done check or the render fails."""
     produced: list[Outgoing] = []
     if job.tick is not None:
-        events = job.tick(job, dt)
+        events = job.tick(drone, job, dt)
         if not is_outgoing_list(events):
             raise TypeError(f"tick returned {type(events).__name__}, expected list[Outgoing]")
         # Copies, so the publisher never reads live job state.
         produced.extend(
             dataclasses.replace(event, message=copy.deepcopy(event.message)) for event in events
         )
-    if is_due:
-        # A copy, so the publisher never reads live job state. Building the message
-        # validates the payload against the job's type (no codec lock is taken).
-        payload = copy.deepcopy(job.render(job))
-        message = new_message(MessageType(job.type), job.drone_id, payload, job.correlation_id)
-        produced.append(Outgoing(message, persistent=False))
-    return produced
+    done = job.done is not None and job.done(drone)
+    if is_due or done:
+        produced.append(render_job(drone, job, now, persistent=done and job.final_persistent))
+    return produced, done
+
+
+def render_job(drone: Drone, job: Job, now: float, *, persistent: bool = False) -> Outgoing:
+    """The job's message for the drone's current state, with the job's correlation_id."""
+    # A copy, so the publisher never reads live job state. Building the message
+    # validates the payload against the job's type (no codec lock is taken).
+    payload = copy.deepcopy(job.render(drone, job, now))
+    message = new_message(MessageType(job.type), job.drone_id, payload, job.correlation_id)
+    return Outgoing(message, persistent=persistent)
 
 
 def _advance(entry: _Entry, now: float) -> None:
@@ -172,18 +192,44 @@ class World:
     of them do.
     """
 
-    __slots__ = ("_drones", "_jobs", "_open", "_staged", "_unknown_drone_commands")
+    __slots__ = (
+        "_drones",
+        "_jobs",
+        "_open",
+        "_staged",
+        "_staged_drones",
+        "_unknown_drone_commands",
+    )
 
-    def __init__(self, jobs: dict[JobKey, _Entry], drones: set[str]) -> None:
+    def __init__(self, jobs: dict[JobKey, _Entry], drones: dict[str, Drone]) -> None:
         self._jobs = jobs
         self._drones = drones
         self._open = True
         self._staged: dict[JobKey, Job | None] = {}
+        self._staged_drones: dict[str, Drone] = {}
         self._unknown_drone_commands = 0
 
     def has_drone(self, drone_id: str) -> bool:
         self._check_open()
-        return drone_id in self._drones
+        return drone_id in self._staged_drones or drone_id in self._drones
+
+    def drone(self, drone_id: str) -> Drone | None:
+        """A private copy of the drone; changes to it are staged like job changes."""
+        self._check_open()
+        staged = self._staged_drones.get(drone_id)
+        if staged is not None:
+            return staged
+        live = self._drones.get(drone_id)
+        if live is None:
+            return None
+        staged = live.copy()
+        self._staged_drones[drone_id] = staged
+        return staged
+
+    def add_drone(self, drone: Drone) -> None:
+        """Stage a new drone (or replace one with the same id)."""
+        self._check_open()
+        self._staged_drones[drone.drone_id] = drone.copy()
 
     def count_unknown_drone_command(self) -> None:
         """Stage one more command for a drone that does not exist (kept on discard)."""
@@ -219,8 +265,11 @@ class World:
         """Drop every change staged in this transaction so far."""
         self._check_open()
         self._staged.clear()
+        self._staged_drones.clear()
 
     def _commit(self) -> None:
+        self._drones.update(self._staged_drones)
+        self._staged_drones.clear()
         for key, job in self._staged.items():
             if job is None:
                 self._jobs.pop(key, None)
@@ -243,7 +292,7 @@ class JobsBoard:
         # ident here while it holds the lock, so reading it unlocked is safe.
         self._owner: int | None = None
         self._jobs: dict[JobKey, _Entry] = {}
-        self._drones: set[str] = set()
+        self._drones: dict[str, Drone] = {}
         self._unknown_drone_commands = 0
 
     @contextmanager
@@ -322,20 +371,42 @@ class JobsBoard:
         messages: list[Outgoing] = []
         errors: list[JobError] = []
         with self._locked():
+            finished: list[JobKey] = []
             for key, entry in self._jobs.items():
                 is_due = now >= entry.next_due
+                drone = self._drones.get(entry.job.drone_id)
+                if drone is None:  # cannot happen through spawn and reset; never tick it
+                    errors.append(JobError(key, LookupError("job for a drone not on the board")))
+                    finished.append(key)
+                    continue
                 try:
-                    messages.extend(_run_job(entry.job, dt, is_due))
+                    produced, done = _run_job(drone, entry.job, now, dt, is_due)
+                    messages.extend(produced)
+                    if done:
+                        finished.append(key)
                 except Exception as exc:
                     errors.append(JobError(key, exc))
                 if is_due:
                     _advance(entry, now)
+            for key in finished:
+                del self._jobs[key]
         return DueResult(messages, errors)
 
-    def add_drone(self, drone_id: str) -> None:
-        """Make commands for `drone_id` reach their handler. Stand-in for #9's spawn."""
+    def add_drone(self, drone: Drone) -> None:
+        """Put a drone on the board, so commands for it reach their handler. Stand-in for
+        #9's spawn, which also creates its jobs in the same transaction."""
         with self._locked():
-            self._drones.add(drone_id)
+            self._drones[drone.drone_id] = drone.copy()
+
+    def drone(self, drone_id: str) -> Drone | None:
+        """A copy of the drone's current state, or None."""
+        with self._locked():
+            live = self._drones.get(drone_id)
+            return None if live is None else live.copy()
+
+    def drone_count(self) -> int:
+        with self._locked():
+            return len(self._drones)
 
     def unknown_drone_commands(self) -> int:
         """Commands received for drones that do not exist, since the process started."""

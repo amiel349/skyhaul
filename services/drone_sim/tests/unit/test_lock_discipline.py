@@ -8,9 +8,11 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from sim_support.drones import board_with, make_drone
 from sim_support.messages import alert_payload, command, outgoing, render_minimal
 from skyhaul_contracts import CommandType, Message
 from skyhaul_drone_sim.board import Job, JobsBoard, World
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing
 from skyhaul_drone_sim.registry import Handler, Registry
 
@@ -35,7 +37,7 @@ def spy_blocking_calls(monkeypatch: pytest.MonkeyPatch, board: JobsBoard) -> lis
     return under_lock
 
 
-def tick(job: Job, dt: float) -> list[Outgoing]:
+def tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
     job.values["ticks"] = job.values.get("ticks", 0) + 1
     return [outgoing("ALERT", job.drone_id, payload=ALERT, persistent=True)]
 
@@ -45,8 +47,8 @@ def make_job(type: str) -> Job:
 
 
 def test_nothing_blocks_under_the_board_lock(monkeypatch: pytest.MonkeyPatch) -> None:
-    board = JobsBoard()
-    board.add_drone("main-d001")
+    board = board_with()
+    board.add_drone(make_drone("main-d001"))
     registry = Registry()
 
     @registry.handles(CommandType.TAKEOFF)
@@ -83,7 +85,7 @@ def test_handlers_get_only_the_world_the_command_and_the_time() -> None:
 def test_world_offers_only_in_memory_job_operations() -> None:
     public = {name for name in dir(World) if not name.startswith("_")}
 
-    with JobsBoard().transaction() as world:
+    with board_with().transaction() as world:
         state = [getattr(world, slot) for slot in World.__slots__]
 
     assert public == {
@@ -92,6 +94,8 @@ def test_world_offers_only_in_memory_job_operations() -> None:
         "remove",
         "discard",
         "has_drone",
+        "drone",
+        "add_drone",
         "count_unknown_drone_command",
     }
-    assert [type(value) for value in state] == [set, dict, bool, dict, int]
+    assert [type(value) for value in state] == [dict, dict, bool, dict, dict, int]

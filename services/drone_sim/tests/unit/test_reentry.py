@@ -4,9 +4,11 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from sim_support.drones import board_with, make_drone
 from sim_support.messages import command, payload_of, render_minimal
 from skyhaul_contracts import CommandType, Message
-from skyhaul_drone_sim.board import DueResult, Job, JobsBoard, World
+from skyhaul_drone_sim.board import DueResult, Job, World
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing
 from skyhaul_drone_sim.registry import DispatchResult, Registry
 
@@ -24,9 +26,9 @@ def finishes[T](work: Callable[[], T]) -> T:
 
 
 def test_tick_that_calls_the_board_gets_a_job_error_instead_of_hanging() -> None:
-    board = JobsBoard()
+    board = board_with()
 
-    def snapshot_tick(job: Job, dt: float) -> list[Outgoing]:
+    def snapshot_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         board.snapshot()
         return []
 
@@ -42,10 +44,10 @@ def test_tick_that_calls_the_board_gets_a_job_error_instead_of_hanging() -> None
 
 
 def test_handler_that_calls_the_board_gets_a_nack_instead_of_hanging() -> None:
-    board = JobsBoard()
+    board = board_with()
     registry = Registry()
 
-    board.add_drone("main-d001")
+    board.add_drone(make_drone("main-d001"))
 
     @registry.handles(CommandType.ARM)
     def handle_arm(world: World, msg: Message[Any], now: float) -> list[Outgoing]:
@@ -65,9 +67,9 @@ def test_handler_that_calls_the_board_gets_a_nack_instead_of_hanging() -> None:
 
 
 def test_board_is_usable_from_any_thread_after_a_refused_reentry() -> None:
-    board = JobsBoard()
+    board = board_with()
 
-    def snapshot_tick(job: Job, dt: float) -> list[Outgoing]:
+    def snapshot_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         board.snapshot()
         return []
 

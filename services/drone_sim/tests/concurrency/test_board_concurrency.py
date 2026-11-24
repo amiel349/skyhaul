@@ -6,10 +6,12 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from sim_support.drones import board_with
 from sim_support.messages import command as make_command
 from sim_support.messages import render_minimal
 from skyhaul_contracts import CommandType, Message
 from skyhaul_drone_sim.board import Job, JobError, JobsBoard, World
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing
 from skyhaul_drone_sim.registry import Registry
 
@@ -53,7 +55,7 @@ def test_one_job_per_drone_and_type_when_32_threads_upsert_at_once() -> None:
     Each upsert reads the stored job and writes a new one, so without the lock an
     upsert can be lost and a later next_due can survive.
     """
-    board = JobsBoard()
+    board = board_with()
     drones = [f"main-d{n:03}" for n in range(100)]
 
     def upsert_all(index: int) -> Callable[[], None]:
@@ -73,7 +75,7 @@ def test_one_job_per_drone_and_type_when_32_threads_upsert_at_once() -> None:
 
 def test_one_job_per_drone_and_type_when_32_threads_create_it_if_missing() -> None:
     """Check-then-act inside one transaction: exactly one thread creates each job."""
-    board = JobsBoard()
+    board = board_with()
     drones = [f"main-d{n:03}" for n in range(100)]
     creators: dict[str, list[int]] = {drone_id: [] for drone_id in drones}
 
@@ -101,8 +103,8 @@ def test_at_most_one_job_per_drone_and_type_after_16_threads_of_1000_upserts_and
     Without the lock on upsert or remove, `due()` fails with "dictionary changed
     size during iteration".
     """
-    board = JobsBoard()
     drones = [f"main-d{n:03}" for n in range(50)]
+    board = board_with(*drones)
     types = ["HEARTBEAT", "BATTERY", "POSITION"]
     churn_done = threading.Event()
     due_calls = 0
@@ -145,11 +147,10 @@ def test_at_most_one_job_per_drone_and_type_after_16_threads_of_1000_upserts_and
 def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() -> None:
     """The tick changes field A, the command replaces the whole job with field B changed."""
     runs = 10_000
-    board = JobsBoard()
-    board.add_drone("main-d001")
+    board = board_with("main-d001")
     registry = Registry()
 
-    def count_tick(job: Job, dt: float) -> list[Outgoing]:
+    def count_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         job.values["a"] += 1
         return []
 
@@ -171,14 +172,14 @@ def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() ->
             values={"a": 0, "b": 0},
         )
     )
-    command = make_command("SET_SPEED")
+    commands_to_send = [make_command("SET_SPEED") for _ in range(runs)]  # distinct msg_ids
 
     def ticks() -> None:
         for n in range(runs):
             board.due(now=n * 0.1, dt=0.1)
 
     def commands() -> None:
-        for n in range(runs):
+        for n, command in enumerate(commands_to_send):
             with board.transaction() as world:
                 registry.dispatch(world, command, now=n * 0.1)
 

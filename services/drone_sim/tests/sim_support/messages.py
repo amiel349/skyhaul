@@ -31,6 +31,7 @@ from skyhaul_contracts.v1 import (
     Waypoint,
 )
 from skyhaul_drone_sim.board import Job
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing, new_message
 
 DRONE = "main-d001"
@@ -74,7 +75,7 @@ def minimal_payload(type: TelemetryType | str, n: int = 0) -> BaseModel:
             raise ValueError(f"{other} is not a periodic job type")
 
 
-def render_minimal(job: Job) -> BaseModel:
+def render_minimal(drone: Drone, job: Job, now: float) -> BaseModel:
     """A render function for any job: `values["n"]` (default 0) lands in the payload."""
     return minimal_payload(job.type, int(job.values.get("n", 0)))
 

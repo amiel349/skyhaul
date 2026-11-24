@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from sim_support.drones import board_with
 from sim_support.messages import (
     alert_payload,
     minimal_payload,
@@ -22,11 +23,12 @@ from skyhaul_drone_sim.board import (
     World,
 )
 from skyhaul_drone_sim.clock import FakeClock
+from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.outbox import Outgoing
 
 
-def render_values(job: Job) -> BaseModel:
-    return render_minimal(job)
+def render_values(drone: Drone, job: Job, now: float) -> BaseModel:
+    return render_minimal(drone, job, now)
 
 
 def alert(drone_id: str = "main-d001", message: str = "low") -> Outgoing:
@@ -67,7 +69,7 @@ def only_job(board: JobsBoard) -> dict[str, Any]:
 
 
 def test_upsert_replaces_job_with_same_key_and_keeps_its_next_due() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(next_due=5.0, values={"v": 1}))
 
     board.upsert(make_job(next_due=99.0, values={"v": 2}))
@@ -78,7 +80,7 @@ def test_upsert_replaces_job_with_same_key_and_keeps_its_next_due() -> None:
 
 
 def test_upsert_keeps_jobs_with_different_keys_apart() -> None:
-    board = JobsBoard()
+    board = board_with()
 
     board.upsert(make_job(drone_id="main-d001", type="HEARTBEAT"))
     board.upsert(make_job(drone_id="main-d001", type="BATTERY"))
@@ -97,7 +99,7 @@ NOT_FINITE_OR_POSITIVE = [0.0, -1.0, math.nan, math.inf, -math.inf]
 
 @pytest.mark.parametrize("period_s", NOT_FINITE_OR_POSITIVE)
 def test_board_upsert_rejects_a_period_that_is_not_finite_and_positive(period_s: float) -> None:
-    board = JobsBoard()
+    board = board_with()
 
     with pytest.raises(ValueError, match="period_s must be finite and positive"):
         board.upsert(make_job(period_s=period_s))
@@ -107,7 +109,7 @@ def test_board_upsert_rejects_a_period_that_is_not_finite_and_positive(period_s:
 
 @pytest.mark.parametrize("period_s", NOT_FINITE_OR_POSITIVE)
 def test_world_upsert_rejects_a_period_that_is_not_finite_and_positive(period_s: float) -> None:
-    board = JobsBoard()
+    board = board_with()
 
     with board.transaction() as world, pytest.raises(ValueError, match="period_s must be finite"):
         world.upsert(make_job(period_s=period_s))
@@ -117,7 +119,7 @@ def test_world_upsert_rejects_a_period_that_is_not_finite_and_positive(period_s:
 
 @pytest.mark.parametrize("next_due", [math.nan, math.inf, -math.inf])
 def test_upsert_rejects_a_next_due_that_is_not_finite(next_due: float) -> None:
-    board = JobsBoard()
+    board = board_with()
 
     with pytest.raises(ValueError, match="next_due must be finite"):
         board.upsert(make_job(next_due=next_due))
@@ -126,7 +128,7 @@ def test_upsert_rejects_a_next_due_that_is_not_finite(next_due: float) -> None:
 
 
 def test_remove_reports_whether_a_job_was_removed() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job())
 
     assert board.remove("main-d001", "HEARTBEAT") is True
@@ -135,7 +137,7 @@ def test_remove_reports_whether_a_job_was_removed() -> None:
 
 
 def test_transaction_changes_are_on_the_board_after_the_block() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(values={"speed": 10}))
 
     with board.transaction() as world:
@@ -150,7 +152,7 @@ def test_transaction_changes_are_on_the_board_after_the_block() -> None:
 
 
 def test_world_cannot_be_used_after_its_transaction_ends() -> None:
-    board = JobsBoard()
+    board = board_with()
     with board.transaction() as world:
         pass
 
@@ -163,7 +165,7 @@ def test_world_cannot_be_used_after_its_transaction_ends() -> None:
 
 
 def test_transaction_releases_the_lock_when_the_block_raises() -> None:
-    board = JobsBoard()
+    board = board_with()
 
     with pytest.raises(KeyError), board.transaction():
         raise KeyError("boom")
@@ -176,7 +178,7 @@ def test_transaction_releases_the_lock_when_the_block_raises() -> None:
 
 
 def test_reads_return_copies_changing_a_snapshot_does_not_change_the_board() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(next_due=3.0, values={"pos": {"lat": 1.0}}))
 
     job = only_job(board)
@@ -195,7 +197,7 @@ def test_reads_return_copies_changing_a_snapshot_does_not_change_the_board() -> 
 
 
 def test_reads_return_copies_changing_an_upserted_job_does_not_change_the_board() -> None:
-    board = JobsBoard()
+    board = board_with()
     job = make_job(values={"pos": {"lat": 1.0}})
     board.upsert(job)
 
@@ -208,12 +210,12 @@ def test_reads_return_copies_changing_an_upserted_job_does_not_change_the_board(
 
 
 def test_due_on_an_empty_board_returns_nothing() -> None:
-    assert JobsBoard().due(now=10.0, dt=0.1) == DueResult([], [])
+    assert board_with().due(now=10.0, dt=0.1) == DueResult([], [])
 
 
 def test_job_with_1s_period_is_due_exactly_10_times_over_10s_on_a_fake_clock() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=clock.monotonic() + 1.0))
 
     emitted: list[Outgoing] = []
@@ -227,7 +229,7 @@ def test_job_with_1s_period_is_due_exactly_10_times_over_10s_on_a_fake_clock() -
 
 def test_clock_jump_of_10s_emits_a_1s_job_once_not_10_times() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=clock.monotonic() + 1.0))
 
     clock.advance(10.0)
@@ -241,7 +243,7 @@ def test_clock_jump_of_10s_emits_a_1s_job_once_not_10_times() -> None:
 
 
 def test_due_emits_when_now_reaches_next_due_then_schedules_one_period_on_its_grid() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=2.0, next_due=5.0))
 
     before = board.due(now=4.9, dt=0.1).messages
@@ -254,7 +256,7 @@ def test_due_emits_when_now_reaches_next_due_then_schedules_one_period_on_its_gr
 
 def test_1s_job_does_not_drift_when_ticks_wake_late_by_0_to_90_ms_over_100s() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
 
     now_ms = 0
@@ -277,7 +279,7 @@ def test_1s_job_does_not_drift_when_ticks_wake_late_by_0_to_90_ms_over_100s() ->
 
 
 def test_emission_carries_the_job_payload_and_correlation_id_and_is_transient() -> None:
-    board = JobsBoard()
+    board = board_with()
     corr = "0b7d4c43-8d33-4f4e-a3e1-5b4e3c1f2a10"
     board.upsert(make_job(correlation_id=corr, values={"n": 7}))
 
@@ -292,11 +294,11 @@ def test_emission_carries_the_job_payload_and_correlation_id_and_is_transient() 
 def test_tick_runs_on_every_call_and_its_events_are_returned_even_when_not_due() -> None:
     event = alert()
 
-    def tick(job: Job, dt: float) -> list[Outgoing]:
+    def tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         job.values["ticks"] += 1
         return [event]
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(next_due=100.0, tick=tick, values={"ticks": 0}))
 
     first = board.due(now=1.0, dt=0.1).messages
@@ -324,11 +326,11 @@ def test_tick_dt_is_capped_at_half_a_second_and_non_finite_dt_counts_as_zero(
 ) -> None:
     seen: list[float] = []
 
-    def tick(job: Job, tick_dt: float) -> list[Outgoing]:
+    def tick(drone: Drone, job: Job, tick_dt: float) -> list[Outgoing]:
         seen.append(tick_dt)
         return []
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(tick=tick))
 
     board.due(now=0.0, dt=dt)
@@ -340,10 +342,10 @@ def test_tick_dt_is_capped_at_half_a_second_and_non_finite_dt_counts_as_zero(
 
 
 def test_due_emits_in_insertion_order_with_each_jobs_tick_events_right_before_it() -> None:
-    def tick_event(job: Job, dt: float) -> list[Outgoing]:
+    def tick_event(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         return [alert(job.drone_id, message=job.type)]
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="POSITION", tick=tick_event))
     board.upsert(make_job(type="HEARTBEAT"))
     board.upsert(make_job(type="BATTERY", tick=tick_event))
@@ -365,7 +367,7 @@ def test_due_emits_in_insertion_order_with_each_jobs_tick_events_right_before_it
 
 
 def test_removed_and_re_added_job_emits_last() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="HEARTBEAT"))
     board.upsert(make_job(type="BATTERY"))
     board.remove("main-d001", "HEARTBEAT")
@@ -379,13 +381,13 @@ def test_removed_and_re_added_job_emits_last() -> None:
 # --- failure isolation ---
 
 
-def raising_render(job: Job) -> BaseModel:
+def raising_render(drone: Drone, job: Job, now: float) -> BaseModel:
     raise ZeroDivisionError("render bug")
 
 
 def test_job_with_raising_render_does_not_starve_the_job_after_it_over_10s() -> None:
     clock = FakeClock()
-    board = JobsBoard()
+    board = board_with()
     board.upsert(
         Job("main-d001", "BATTERY", period_s=1.0, next_due=1.0, render=raising_render),
     )
@@ -410,13 +412,13 @@ def test_job_with_raising_render_does_not_starve_the_job_after_it_over_10s() -> 
 def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_call() -> None:
     low = alert("main-d002")
 
-    def raising_tick(job: Job, dt: float) -> list[Outgoing]:
+    def raising_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         raise ValueError("tick bug")
 
-    def alert_tick(job: Job, dt: float) -> list[Outgoing]:
+    def alert_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         return [low]
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(drone_id="main-d001", next_due=100.0, tick=raising_tick))
     board.upsert(make_job(drone_id="main-d002", next_due=100.0, tick=alert_tick))
 
@@ -429,10 +431,10 @@ def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_
 
 
 def test_failing_job_drops_its_partial_output_for_that_call() -> None:
-    def tick_then_render_fails(job: Job, dt: float) -> list[Outgoing]:
+    def tick_then_render_fails(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         return [alert(job.drone_id)]
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(
         Job("main-d001", "POSITION", 1.0, 1.0, render=raising_render, tick=tick_then_render_fails)
     )
@@ -451,10 +453,10 @@ def test_failing_job_drops_its_partial_output_for_that_call() -> None:
 def test_tick_that_returns_anything_but_a_list_of_outgoing_is_a_failing_job(
     returned: object,
 ) -> None:
-    def bad_tick(job: Job, dt: float) -> Any:
+    def bad_tick(drone: Drone, job: Job, dt: float) -> Any:
         return returned
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(next_due=100.0, tick=bad_tick))
 
     result = board.due(now=1.0, dt=0.1)
@@ -469,14 +471,14 @@ def test_tick_that_returns_anything_but_a_list_of_outgoing_is_a_failing_job(
 
 
 def test_emitted_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
-    def live_render(job: Job) -> BaseModel:
+    def live_render(drone: Drone, job: Job, now: float) -> BaseModel:
         return minimal_payload(job.type, job.values["pos"]["n"])
 
-    def count_tick(job: Job, dt: float) -> list[Outgoing]:
+    def count_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         job.values["pos"]["n"] += 1
         return []
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(
         Job(
             "main-d001",
@@ -498,11 +500,11 @@ def test_emitted_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
 
 
 def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
-    def live_event_tick(job: Job, dt: float) -> list[Outgoing]:
+    def live_event_tick(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         job.values["pos"]["n"] += 1
         return [alert(job.drone_id, message=str(job.values["pos"]["n"]))]
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(next_due=100.0, tick=live_event_tick, values={"pos": {"n": 0}}))
 
     (event,) = board.due(now=1.0, dt=0.1).messages
@@ -517,11 +519,11 @@ def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
 
 
 def test_tick_that_tries_to_change_its_jobs_type_fails_and_keys_stay_unique() -> None:
-    def rename(job: Job, dt: float) -> list[Outgoing]:
+    def rename(drone: Drone, job: Job, dt: float) -> list[Outgoing]:
         job.type = "BATTERY"
         return []
 
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="HEARTBEAT", next_due=100.0, tick=rename))
     board.upsert(make_job(type="BATTERY", next_due=100.0))
 
@@ -543,7 +545,7 @@ def test_tick_that_tries_to_change_its_jobs_type_fails_and_keys_stay_unique() ->
 def test_job_from_world_get_cannot_change_identity_or_period_in_place(
     field_name: str, value: object
 ) -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
 
     with board.transaction() as world:
@@ -566,7 +568,7 @@ def test_replacing_a_job_with_a_bad_period_is_rejected() -> None:
 
 
 def test_world_get_carries_the_boards_actual_next_due() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
     board.due(now=1.0, dt=0.1)
 
@@ -585,7 +587,7 @@ def job_key(job: dict[str, Any]) -> tuple[str, str]:
 
 
 def test_transaction_that_raises_changes_nothing_on_the_board() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="HEARTBEAT", values={"armed": False}))
     board.upsert(make_job(type="BATTERY"))
     before = board.snapshot()
@@ -605,7 +607,7 @@ def test_transaction_that_raises_changes_nothing_on_the_board() -> None:
 
 
 def test_discard_drops_the_changes_staged_so_far_but_keeps_later_ones() -> None:
-    board = JobsBoard()
+    board = board_with()
 
     with board.transaction() as world:
         world.upsert(make_job(type="HEARTBEAT"))
@@ -616,7 +618,7 @@ def test_discard_drops_the_changes_staged_so_far_but_keeps_later_ones() -> None:
 
 
 def test_world_sees_its_own_staged_changes() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="HEARTBEAT"))
 
     with board.transaction() as world:
@@ -634,7 +636,7 @@ def test_world_sees_its_own_staged_changes() -> None:
 
 
 def test_jobs_keep_their_own_phase_after_a_stall() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(type="HEARTBEAT", period_s=1.0, next_due=10.3))
     board.upsert(make_job(type="BATTERY", period_s=1.0, next_due=10.7))
 
@@ -648,7 +650,7 @@ def test_jobs_keep_their_own_phase_after_a_stall() -> None:
 
 
 def test_due_exactly_on_a_later_slot_schedules_the_slot_after_it() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
 
     first = board.due(now=3.0, dt=0.1).messages
@@ -660,7 +662,7 @@ def test_due_exactly_on_a_later_slot_schedules_the_slot_after_it() -> None:
 
 
 def test_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=60.0, next_due=60.0))
 
     board.upsert(make_job(period_s=1.0, next_due=1.0))
@@ -670,7 +672,7 @@ def test_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
 
 
 def test_upsert_with_a_slower_period_keeps_the_earlier_existing_next_due() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
 
     board.upsert(make_job(period_s=60.0, next_due=60.0))
@@ -682,7 +684,7 @@ def test_upsert_with_a_slower_period_keeps_the_earlier_existing_next_due() -> No
 
 
 def test_world_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=60.0, next_due=60.0))
 
     with board.transaction() as world:
@@ -695,7 +697,7 @@ def test_world_upsert_with_a_new_period_uses_the_earlier_next_due() -> None:
 
 @pytest.mark.parametrize("now", [math.nan, math.inf, -math.inf])
 def test_due_rejects_a_now_that_is_not_finite_and_leaves_jobs_alone(now: float) -> None:
-    board = JobsBoard()
+    board = board_with()
     board.upsert(make_job(period_s=1.0, next_due=1.0))
     before = board.snapshot()
 

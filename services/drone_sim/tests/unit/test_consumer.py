@@ -7,6 +7,7 @@ import threading
 from typing import Any
 
 import pytest
+from sim_support.drones import board_with, make_drone
 from sim_support.fakes import FakeBroker, FakeConnection
 from sim_support.messages import DRONE, command, payload_of, raw_command
 from skyhaul_contracts import Codec, CommandType, Message, MessageType
@@ -37,8 +38,8 @@ def make_registry() -> Registry:
 def make_consumer(
     outbox: Outbox | None = None, stop: threading.Event | None = None
 ) -> tuple[Consumer, Outbox, JobsBoard]:
-    board = JobsBoard()
-    board.add_drone(DRONE)
+    board = board_with()
+    board.add_drone(make_drone(DRONE))
     outbox = outbox if outbox is not None else new_outbox(1000)
     consumer = Consumer(
         codec=CODEC,
@@ -366,8 +367,8 @@ def test_stop_while_the_outbox_is_full_leaves_the_command_unacked() -> None:
 def test_run_consumes_until_stopped_then_closes_its_channel() -> None:
     stop = threading.Event()
     broker = FakeBroker()
-    board = JobsBoard()
-    board.add_drone(DRONE)
+    board = board_with()
+    board.add_drone(make_drone(DRONE))
     outbox = new_outbox(10)
     consumer = Consumer(
         codec=CODEC,
