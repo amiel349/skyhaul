@@ -58,5 +58,31 @@ services:
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
 
+  # Test profile only: `docker compose --profile test up`. The control API port
+  # (127.0.0.1:8100) and its /healthz check arrive with #9.
+  drone-sim:
+    profiles: ["test"]
+    build:
+      context: ..
+      dockerfile: services/drone_sim/Dockerfile
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:?run make env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?run make env}
+      SIM_DEBUG_TAP: ${SIM_DEBUG_TAP:-0}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    # For now healthy means the process is alive; it exits when RabbitMQ stays unreachable.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 15s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
 volumes:
   pgdata:

@@ -22,8 +22,8 @@ period was validated when the job was built. To change them, upsert a new `Job`
 board keeps each job's actual next due time itself, next to the job.
 
 Until the drone model lands (#8, #9), tick and render functions receive the job
-itself and keep their state in `Job.values`. The wiring PR switches them to the
-`Drone`, and `type` to the contract `TelemetryType`.
+itself and keep their state in `Job.values`, and the board knows drones only as a
+set of ids (`add_drone`). #9 replaces both with the `Drone` model.
 """
 
 import copy
@@ -35,14 +35,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list
+from pydantic import BaseModel
+from skyhaul_contracts import MessageType, TelemetryType
+
+from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list, new_message
 
 MAX_TICK_DT_S = 0.5
 """A tick never advances state by more than this, however long the scheduler stalled."""
 
-type JobType = str
+type JobType = TelemetryType
 type JobKey = tuple[str, JobType]
-type RenderFn = Callable[[Job], object]
+type RenderFn = Callable[[Job], BaseModel]
 type TickFn = Callable[[Job, float], list[Outgoing]]
 
 
@@ -57,7 +60,7 @@ class Job:
     Once the job is on the board, the board tracks the actual next due time;
     `World.get` returns a job carrying it."""
     render: RenderFn
-    """Builds the payload from the job's current state."""
+    """Builds the payload model for `type` from the job's current state."""
     tick: TickFn | None = None
     """Runs on every scheduler tick while the job exists. Returns extra events.
     It may change `values` in place, nothing else."""
@@ -65,6 +68,8 @@ class Job:
     values: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Normalize "HEARTBEAT" to TelemetryType.HEARTBEAT; an unknown type raises here.
+        object.__setattr__(self, "type", TelemetryType(self.type))
         if not (math.isfinite(self.period_s) and self.period_s > 0):
             raise ValueError(f"period_s must be finite and positive, got {self.period_s}")
         if not math.isfinite(self.next_due):
@@ -124,19 +129,14 @@ def _run_job(job: Job, dt: float, is_due: bool) -> list[Outgoing]:
             raise TypeError(f"tick returned {type(events).__name__}, expected list[Outgoing]")
         # Copies, so the publisher never reads live job state.
         produced.extend(
-            dataclasses.replace(event, payload=copy.deepcopy(event.payload)) for event in events
+            dataclasses.replace(event, message=copy.deepcopy(event.message)) for event in events
         )
     if is_due:
-        produced.append(
-            Outgoing(
-                drone_id=job.drone_id,
-                type=job.type,
-                correlation_id=job.correlation_id,
-                # A copy, so the publisher never reads live job state.
-                payload=copy.deepcopy(job.render(job)),
-                persistent=False,
-            )
-        )
+        # A copy, so the publisher never reads live job state. Building the message
+        # validates the payload against the job's type (no codec lock is taken).
+        payload = copy.deepcopy(job.render(job))
+        message = new_message(MessageType(job.type), job.drone_id, payload, job.correlation_id)
+        produced.append(Outgoing(message, persistent=False))
     return produced
 
 
@@ -153,7 +153,7 @@ def _to_dict(entry: _Entry) -> dict[str, Any]:
     job = entry.job
     return {
         "drone_id": job.drone_id,
-        "type": job.type,
+        "type": job.type.value,
         "period_s": job.period_s,
         "next_due": entry.next_due,
         "correlation_id": job.correlation_id,
@@ -172,12 +172,23 @@ class World:
     of them do.
     """
 
-    __slots__ = ("_jobs", "_open", "_staged")
+    __slots__ = ("_drones", "_jobs", "_open", "_staged", "_unknown_drone_commands")
 
-    def __init__(self, jobs: dict[JobKey, _Entry]) -> None:
+    def __init__(self, jobs: dict[JobKey, _Entry], drones: set[str]) -> None:
         self._jobs = jobs
+        self._drones = drones
         self._open = True
         self._staged: dict[JobKey, Job | None] = {}
+        self._unknown_drone_commands = 0
+
+    def has_drone(self, drone_id: str) -> bool:
+        self._check_open()
+        return drone_id in self._drones
+
+    def count_unknown_drone_command(self) -> None:
+        """Stage one more command for a drone that does not exist (kept on discard)."""
+        self._check_open()
+        self._unknown_drone_commands += 1
 
     def get(self, drone_id: str, type: JobType) -> Job | None:
         self._check_open()
@@ -232,6 +243,8 @@ class JobsBoard:
         # ident here while it holds the lock, so reading it unlocked is safe.
         self._owner: int | None = None
         self._jobs: dict[JobKey, _Entry] = {}
+        self._drones: set[str] = set()
+        self._unknown_drone_commands = 0
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -272,11 +285,12 @@ class JobsBoard:
         dropped when it raises.
         """
         with self._locked():
-            world = World(self._jobs)
+            world = World(self._jobs, self._drones)
             try:
                 yield world
                 world._commit()
             finally:
+                self._unknown_drone_commands += world._unknown_drone_commands
                 world._close()
 
     def due(self, now: float, dt: float) -> DueResult:
@@ -317,6 +331,16 @@ class JobsBoard:
                 if is_due:
                     _advance(entry, now)
         return DueResult(messages, errors)
+
+    def add_drone(self, drone_id: str) -> None:
+        """Make commands for `drone_id` reach their handler. Stand-in for #9's spawn."""
+        with self._locked():
+            self._drones.add(drone_id)
+
+    def unknown_drone_commands(self) -> int:
+        """Commands received for drones that do not exist, since the process started."""
+        with self._locked():
+            return self._unknown_drone_commands
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Deep copies of every job's data (without its functions)."""

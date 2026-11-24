@@ -3,6 +3,15 @@ import math
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
+from sim_support.messages import (
+    alert_payload,
+    minimal_payload,
+    outgoing,
+    payload_of,
+    render_minimal,
+)
+from skyhaul_contracts import MessageType
 from skyhaul_drone_sim.board import (
     MAX_TICK_DT_S,
     DueResult,
@@ -16,8 +25,16 @@ from skyhaul_drone_sim.clock import FakeClock
 from skyhaul_drone_sim.outbox import Outgoing
 
 
-def render_values(job: Job) -> object:
-    return dict(job.values)
+def render_values(job: Job) -> BaseModel:
+    return render_minimal(job)
+
+
+def alert(drone_id: str = "main-d001", message: str = "low") -> Outgoing:
+    return outgoing("ALERT", drone_id, payload=alert_payload(message), persistent=True)
+
+
+def alert_text(out: Outgoing) -> str:
+    return str(payload_of(out)["message"])
 
 
 def make_job(
@@ -261,21 +278,19 @@ def test_1s_job_does_not_drift_when_ticks_wake_late_by_0_to_90_ms_over_100s() ->
 
 def test_emission_carries_the_job_payload_and_correlation_id_and_is_transient() -> None:
     board = JobsBoard()
-    board.upsert(make_job(correlation_id="corr-1", values={"armed": False}))
+    corr = "0b7d4c43-8d33-4f4e-a3e1-5b4e3c1f2a10"
+    board.upsert(make_job(correlation_id=corr, values={"n": 7}))
 
     (out,) = board.due(now=1.0, dt=0.1).messages
 
-    assert out == Outgoing(
-        drone_id="main-d001",
-        type="HEARTBEAT",
-        correlation_id="corr-1",
-        payload={"armed": False},
-        persistent=False,
-    )
+    assert out.persistent is False
+    assert (out.message.drone_id, out.message.type) == ("main-d001", MessageType.HEARTBEAT)
+    assert out.message.correlation_id == corr
+    assert payload_of(out) == {"flight_state": "LANDED", "armed": False, "uptime_s": 7}
 
 
 def test_tick_runs_on_every_call_and_its_events_are_returned_even_when_not_due() -> None:
-    event = Outgoing("main-d001", "ALERT", None, {"code": "LOW_BATTERY"}, persistent=True)
+    event = alert()
 
     def tick(job: Job, dt: float) -> list[Outgoing]:
         job.values["ticks"] += 1
@@ -326,7 +341,7 @@ def test_tick_dt_is_capped_at_half_a_second_and_non_finite_dt_counts_as_zero(
 
 def test_due_emits_in_insertion_order_with_each_jobs_tick_events_right_before_it() -> None:
     def tick_event(job: Job, dt: float) -> list[Outgoing]:
-        return [Outgoing(job.drone_id, "ALERT", None, {"from": job.type}, persistent=True)]
+        return [alert(job.drone_id, message=job.type)]
 
     board = JobsBoard()
     board.upsert(make_job(type="POSITION", tick=tick_event))
@@ -336,12 +351,16 @@ def test_due_emits_in_insertion_order_with_each_jobs_tick_events_right_before_it
 
     messages = board.due(now=1.0, dt=0.1).messages
 
-    assert [(out.type, out.payload) for out in messages] == [
-        ("ALERT", {"from": "POSITION"}),
-        ("POSITION", {}),
-        ("HEARTBEAT", {}),
-        ("ALERT", {"from": "BATTERY"}),
-        ("BATTERY", {}),
+    def describe(out: Outgoing) -> tuple[str, str]:
+        text = alert_text(out) if out.message.type is MessageType.ALERT else ""
+        return (out.message.type.value, text)
+
+    assert [describe(out) for out in messages] == [
+        ("ALERT", "POSITION"),
+        ("POSITION", ""),
+        ("HEARTBEAT", ""),
+        ("ALERT", "BATTERY"),
+        ("BATTERY", ""),
     ]
 
 
@@ -354,13 +373,13 @@ def test_removed_and_re_added_job_emits_last() -> None:
 
     messages = board.due(now=1.0, dt=0.1).messages
 
-    assert [out.type for out in messages] == ["BATTERY", "HEARTBEAT"]
+    assert [out.message.type for out in messages] == ["BATTERY", "HEARTBEAT"]
 
 
 # --- failure isolation ---
 
 
-def raising_render(job: Job) -> object:
+def raising_render(job: Job) -> BaseModel:
     raise ZeroDivisionError("render bug")
 
 
@@ -380,7 +399,7 @@ def test_job_with_raising_render_does_not_starve_the_job_after_it_over_10s() -> 
         emitted += result.messages
         errors += result.errors
 
-    assert [out.type for out in emitted] == ["HEARTBEAT"] * 10
+    assert [out.message.type for out in emitted] == ["HEARTBEAT"] * 10
     assert len(errors) == 10  # once per period, not on every tick
     assert {error.key for error in errors} == {("main-d001", "BATTERY")}
     assert all(isinstance(error.error, ZeroDivisionError) for error in errors)
@@ -389,13 +408,13 @@ def test_job_with_raising_render_does_not_starve_the_job_after_it_over_10s() -> 
 
 
 def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_call() -> None:
-    alert = Outgoing("main-d002", "ALERT", None, {"code": "LOW_BATTERY"}, persistent=True)
+    low = alert("main-d002")
 
     def raising_tick(job: Job, dt: float) -> list[Outgoing]:
         raise ValueError("tick bug")
 
     def alert_tick(job: Job, dt: float) -> list[Outgoing]:
-        return [alert]
+        return [low]
 
     board = JobsBoard()
     board.upsert(make_job(drone_id="main-d001", next_due=100.0, tick=raising_tick))
@@ -403,7 +422,7 @@ def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_
 
     result = board.due(now=1.0, dt=0.1)
 
-    assert result.messages == [alert]
+    assert result.messages == [low]
     assert [(error.key, type(error.error)) for error in result.errors] == [
         (("main-d001", "HEARTBEAT"), ValueError)
     ]
@@ -411,7 +430,7 @@ def test_raising_tick_does_not_lose_another_jobs_persistent_event_from_the_same_
 
 def test_failing_job_drops_its_partial_output_for_that_call() -> None:
     def tick_then_render_fails(job: Job, dt: float) -> list[Outgoing]:
-        return [Outgoing(job.drone_id, "ALERT", None, {}, persistent=True)]
+        return [alert(job.drone_id)]
 
     board = JobsBoard()
     board.upsert(
@@ -450,8 +469,8 @@ def test_tick_that_returns_anything_but_a_list_of_outgoing_is_a_failing_job(
 
 
 def test_emitted_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
-    def live_render(job: Job) -> object:
-        return job.values
+    def live_render(job: Job) -> BaseModel:
+        return minimal_payload(job.type, job.values["pos"]["n"])
 
     def count_tick(job: Job, dt: float) -> list[Outgoing]:
         job.values["pos"]["n"] += 1
@@ -474,14 +493,14 @@ def test_emitted_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
     board.due(now=1.1, dt=0.1)
     board.due(now=1.2, dt=0.1)
 
-    assert out.payload == {"pos": {"n": 1}}
+    assert payload_of(out)["altitude_m"] == 1.0
     assert only_job(board)["values"] == {"pos": {"n": 3}}
 
 
 def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
     def live_event_tick(job: Job, dt: float) -> list[Outgoing]:
         job.values["pos"]["n"] += 1
-        return [Outgoing(job.drone_id, "ALERT", None, job.values, persistent=True)]
+        return [alert(job.drone_id, message=str(job.values["pos"]["n"]))]
 
     board = JobsBoard()
     board.upsert(make_job(next_due=100.0, tick=live_event_tick, values={"pos": {"n": 0}}))
@@ -490,7 +509,7 @@ def test_tick_event_payload_is_a_copy_a_later_tick_does_not_change_it() -> None:
     board.due(now=1.1, dt=0.1)
     board.due(now=1.2, dt=0.1)
 
-    assert event.payload == {"pos": {"n": 1}}
+    assert alert_text(event) == "1"
     assert only_job(board)["values"] == {"pos": {"n": 3}}
 
 
@@ -621,7 +640,7 @@ def test_jobs_keep_their_own_phase_after_a_stall() -> None:
 
     stalled = board.due(now=12.0, dt=1.7).messages
 
-    assert [out.type for out in stalled] == ["HEARTBEAT", "BATTERY"]
+    assert [out.message.type for out in stalled] == ["HEARTBEAT", "BATTERY"]
     assert {job["type"]: job["next_due"] for job in board.snapshot()} == {
         "HEARTBEAT": 12.3,
         "BATTERY": 12.7,

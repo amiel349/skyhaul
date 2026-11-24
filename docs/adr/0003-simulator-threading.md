@@ -10,7 +10,7 @@ The simulator answers commands, sends periodic telemetry for many drones, and mo
 
 Exactly three long-lived threads, each with one job:
 
-1. **Consumer** (main thread): owns its own connection, decodes, calls the handler from a decorator registry, acks after handling. Never sends, never sleeps.
+1. **Consumer** (main thread): owns its own connection, decodes, calls the handler from a decorator registry, acks after handling. Never sends, and never sleeps while handling a message (see the second amendment for the two bounded waits it does have).
 2. **Scheduler**: every 100 ms asks the jobs board what is due, applies movement ticks, and puts messages in the outbox. Stops on a shared stop event.
 3. **Publisher**: the only thread that publishes, on its own connection, reading from a bounded outbox queue.
 
@@ -42,3 +42,12 @@ Settled while building the jobs board (#7, PR #12); details in `docs/architectur
 - **No nested locking.** A public board call from the thread that already holds the lock raises `RuntimeError` instead of deadlocking.
 - **A raising job is isolated.** `due()` returns `DueResult(messages, errors)`. A job whose `tick` or `render` raises is reported in `errors`, its output for that call is dropped, and the other jobs go on. The scheduler logs the errors after the lock is released. Reply, tick-event and render payloads are deep copies, so the publisher never reads live state.
 - The control API thread is the fourth long-lived thread mentioned above. The count stays four regardless of how many drones exist.
+
+## Amendment · 2026-11-24 · consumer loop, waits and daemon threads
+
+Settled while wiring the threads to RabbitMQ (#7, PR #15).
+
+- **The consumer polls instead of blocking.** It runs `process_data_events(time_limit=0.2)` while the stop event is clear, instead of `start_consuming` plus `add_callback_threadsafe(stop_consuming)`. The SIGTERM/SIGINT handler only sets the stop event and never calls pika from inside a signal handler. Cost: up to 0.2 s more to stop.
+- **Two bounded waits, never while handling a message.** The 0.2 s poll above is the broker waiting for deliveries, not the consumer sleeping. After a lost connection, the consumer waits 0.5 s on the stop event before reconnecting, so a channel error right after connecting can't become a tight loop. Neither wait holds the board lock or delays a message already received.
+- **The scheduler and publisher are daemon threads**, joined by the main thread with bounds. A publish that a blocked broker never confirms must not keep the process alive past the 10 s shutdown limit. Anything still unsent when the 5 s drain ends is counted and logged as dropped, so nothing is lost silently.
+- **A broker nack is retried a bounded number of times.** The publisher offers one message at most 5 times (backing off 0.05 s, doubling, capped at 1 s; the stop event ends the wait early). After that it drops the message, counts and logs it, and moves on, so one message the broker keeps refusing can't pin the publisher, fill the outbox and stall the consumer.

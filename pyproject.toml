@@ -57,5 +57,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["services", "contracts"]
 addopts = "--import-mode=importlib -ra"
+# Shared simulator test helpers (`sim_support`): fakes, builders and the command client.
+pythonpath = ["services/drone_sim/tests"]
 markers = ["integration: needs Docker (Testcontainers); run with `make test-integration`"]
 timeout = 30

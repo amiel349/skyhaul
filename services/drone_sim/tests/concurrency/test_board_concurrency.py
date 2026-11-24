@@ -4,10 +4,14 @@ import dataclasses
 import random
 import threading
 from collections.abc import Callable
+from typing import Any
 
+from sim_support.messages import command as make_command
+from sim_support.messages import render_minimal
+from skyhaul_contracts import CommandType, Message
 from skyhaul_drone_sim.board import Job, JobError, JobsBoard, World
 from skyhaul_drone_sim.outbox import Outgoing
-from skyhaul_drone_sim.registry import Command, Registry
+from skyhaul_drone_sim.registry import Registry
 
 JOIN_TIMEOUT_S = 30.0
 
@@ -36,7 +40,7 @@ def run_together(workers: list[Callable[[], None]]) -> None:
 
 
 def make_job(drone_id: str, type: str, next_due: float = 1.0, **values: int) -> Job:
-    return Job(drone_id, type, 1.0, next_due, render=lambda job: {}, values=dict(values))
+    return Job(drone_id, type, 1.0, next_due, render=render_minimal, values=dict(values))
 
 
 def job_keys(board: JobsBoard) -> list[tuple[str, str]]:
@@ -56,7 +60,7 @@ def test_one_job_per_drone_and_type_when_32_threads_upsert_at_once() -> None:
         def work() -> None:
             for drone_id in drones:
                 period_s = float(index + 1)
-                board.upsert(Job(drone_id, "HEARTBEAT", period_s, period_s, render=lambda job: {}))
+                board.upsert(Job(drone_id, "HEARTBEAT", period_s, period_s, render=render_minimal))
 
         return work
 
@@ -142,14 +146,15 @@ def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() ->
     """The tick changes field A, the command replaces the whole job with field B changed."""
     runs = 10_000
     board = JobsBoard()
+    board.add_drone("main-d001")
     registry = Registry()
 
     def count_tick(job: Job, dt: float) -> list[Outgoing]:
         job.values["a"] += 1
         return []
 
-    @registry.handles("SET_SPEED")
-    def handle_set_speed(world: World, command: Command, now: float) -> list[Outgoing]:
+    @registry.handles(CommandType.SET_SPEED)
+    def handle_set_speed(world: World, command: Message[Any], now: float) -> list[Outgoing]:
         job = world.get(command.drone_id, "POSITION")
         assert job is not None
         world.upsert(dataclasses.replace(job, values={**job.values, "b": job.values["b"] + 1}))
@@ -161,12 +166,12 @@ def test_tick_and_command_upsert_on_one_job_10000_times_each_lose_no_update() ->
             "POSITION",
             1.0,
             1e9,
-            render=lambda job: {},
+            render=render_minimal,
             tick=count_tick,
             values={"a": 0, "b": 0},
         )
     )
-    command = Command("msg-1", "corr-1", "main-d001", "SET_SPEED", {})
+    command = make_command("SET_SPEED")
 
     def ticks() -> None:
         for n in range(runs):

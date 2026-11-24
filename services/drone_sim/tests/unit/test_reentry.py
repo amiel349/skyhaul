@@ -2,10 +2,13 @@
 
 import threading
 from collections.abc import Callable
+from typing import Any
 
+from sim_support.messages import command, payload_of, render_minimal
+from skyhaul_contracts import CommandType, Message
 from skyhaul_drone_sim.board import DueResult, Job, JobsBoard, World
 from skyhaul_drone_sim.outbox import Outgoing
-from skyhaul_drone_sim.registry import Command, NackPlaceholder, Registry
+from skyhaul_drone_sim.registry import DispatchResult, Registry
 
 TIMEOUT_S = 5.0
 
@@ -28,7 +31,7 @@ def test_tick_that_calls_the_board_gets_a_job_error_instead_of_hanging() -> None
         return []
 
     board.upsert(
-        Job("main-d001", "HEARTBEAT", 1.0, 100.0, render=lambda job: {}, tick=snapshot_tick)
+        Job("main-d001", "HEARTBEAT", 1.0, 100.0, render=render_minimal, tick=snapshot_tick)
     )
 
     result: DueResult = finishes(lambda: board.due(now=1.0, dt=0.1))
@@ -42,20 +45,22 @@ def test_handler_that_calls_the_board_gets_a_nack_instead_of_hanging() -> None:
     board = JobsBoard()
     registry = Registry()
 
-    @registry.handles("ARM")
-    def handle_arm(world: World, command: Command, now: float) -> list[Outgoing]:
-        board.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=lambda job: {}))
+    board.add_drone("main-d001")
+
+    @registry.handles(CommandType.ARM)
+    def handle_arm(world: World, msg: Message[Any], now: float) -> list[Outgoing]:
+        board.upsert(Job("main-d001", "POSITION", 1.0, 1.0, render=render_minimal))
         return []
 
-    def dispatch() -> list[Outgoing]:
+    def dispatch() -> DispatchResult:
         with board.transaction() as world:
-            return registry.dispatch(world, Command("m", "c", "main-d001", "ARM", {}), now=0.0)
+            return registry.dispatch(world, command("ARM"), now=0.0)
 
-    (reply,) = finishes(dispatch)
+    result = finishes(dispatch)
 
-    assert isinstance(reply.payload, NackPlaceholder)
-    assert reply.payload.reason == "INTERNAL_ERROR"
-    assert isinstance(reply.payload.error, RuntimeError)
+    (reply,) = result.replies
+    assert payload_of(reply)["reason"] == "INTERNAL_ERROR"
+    assert isinstance(result.error, RuntimeError)
     assert board.snapshot() == []
 
 
@@ -67,7 +72,7 @@ def test_board_is_usable_from_any_thread_after_a_refused_reentry() -> None:
         return []
 
     board.upsert(
-        Job("main-d001", "HEARTBEAT", 1.0, 100.0, render=lambda job: {}, tick=snapshot_tick)
+        Job("main-d001", "HEARTBEAT", 1.0, 100.0, render=render_minimal, tick=snapshot_tick)
     )
     finishes(lambda: board.due(now=1.0, dt=0.1))
 

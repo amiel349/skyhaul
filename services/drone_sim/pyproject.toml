@@ -3,7 +3,17 @@ name = "skyhaul-drone-sim"
 version = "0.0.0"
 description = "Skyhaul drone simulator"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pika>=1.4.4,<2",
+    "pydantic>=2.14.3,<3",
+    "skyhaul-contracts",
+]
+
+[project.scripts]
+skyhaul-drone-sim = "skyhaul_drone_sim.__main__:run"
+
+[tool.uv.sources]
+skyhaul-contracts = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
