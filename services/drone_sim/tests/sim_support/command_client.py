@@ -7,6 +7,8 @@ the ACK or NACK that answers each one.
   an unroutable command raises `UnroutableError`, a refused one (full queue) `NackError`.
 - Replies arrive on an exclusive, auto-delete queue bound to `drone.<id>.*` for each drone
   it watches, and are matched by `command_msg_id`.
+- Every message received is decoded by the Codec, so one that breaks a schema fails the
+  test. All of them are kept in `received`, with their arrival time.
 
 It is single-threaded, like the pika connection it owns.
 """
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +32,13 @@ from skyhaul_contracts.topology import (
 )
 
 REPLY_TYPES = frozenset({MessageType.ACK, MessageType.NACK})
+
+
+@dataclass(frozen=True)
+class Received:
+    message: Message[Any]
+    arrived_at: float
+    """time.monotonic() when the client got it."""
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,8 @@ class CommandClient:
         self._channel.basic_consume(self._queue, self._on_reply, auto_ack=True)
         self.replies: list[Reply] = []
         """Every ACK and NACK received, in arrival order."""
+        self.received: list[Received] = []
+        """Every message received, telemetry included, in arrival order."""
 
     def close(self) -> None:
         if self._connection.is_open:
@@ -124,6 +136,22 @@ class CommandClient:
             self._connection.process_data_events(time_limit=min(remaining, 0.1))
         return list(self.replies)
 
+    def wait_for(
+        self, condition: Callable[[Message[Any]], bool], timeout_s: float = 30.0
+    ) -> Message[Any]:
+        """The first message received (earlier ones included) that meets `condition`."""
+        deadline = time.monotonic() + timeout_s
+        seen = 0
+        while True:
+            for item in self.received[seen:]:
+                if condition(item.message):
+                    return item.message
+            seen = len(self.received)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"no matching message in {timeout_s} s")
+            self._connection.process_data_events(time_limit=min(remaining, 0.1))
+
     def pump(self, seconds: float) -> None:
         """Process incoming messages for `seconds` (to prove that nothing arrives)."""
         deadline = time.monotonic() + seconds
@@ -132,5 +160,6 @@ class CommandClient:
 
     def _on_reply(self, channel: Any, method: Any, properties: Any, body: bytes) -> None:
         message = self.codec.decode(body)
+        self.received.append(Received(message, time.monotonic()))
         if message.type in REPLY_TYPES:
             self.replies.append(Reply(message, properties))

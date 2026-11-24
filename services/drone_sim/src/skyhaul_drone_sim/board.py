@@ -362,6 +362,10 @@ class JobsBoard:
         dropped. Its next_due still advances if it was due, so it fails at most once
         per period. Other jobs are not affected.
 
+        A job whose `done(drone)` is true after its tick emits one final message in
+        this call, due or not (persistent if `final_persistent`), and is removed. A job
+        whose drone is not on the board is reported in `errors` and removed.
+
         Raises ValueError if `now` is not finite (a broken clock), before touching
         any job.
         """
