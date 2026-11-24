@@ -105,3 +105,27 @@ def test_position_heading_points_at_the_target(
 
     assert position.message.payload.heading_deg == pytest.approx(heading_deg)
     assert position.message.payload.ground_speed_mps == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize("battery_pct", [10.0, 3.0, 0.0])
+def test_goto_with_battery_at_or_below_10_pct_gets_nack_battery_too_low_and_drone_does_not_move(
+    battery_pct: float,
+) -> None:
+    flight = Flight()
+    flight.hovering()
+    flight.set(battery_pct=battery_pct)
+    before = flight.drone.pos
+
+    result = flight.send("GOTO", goto(offset_point(north_m=200.0)))
+
+    assert nack_reason(result) == "BATTERY_TOO_LOW"
+    assert flight.drone.state is FlightState.HOVERING
+    assert flight.drone.pos == before
+
+
+def test_goto_with_battery_just_above_10_pct_is_accepted() -> None:
+    flight = Flight()
+    flight.hovering()
+    flight.set(battery_pct=10.5)
+
+    assert reply_type(flight.send("GOTO", goto(offset_point(north_m=200.0)))) is MessageType.ACK

@@ -125,3 +125,17 @@ def test_landed_drone_gets_invalid_state_for_start_mission() -> None:
     flight = Flight()
 
     assert nack_reason(flight.send("START_MISSION", mission(*WAYPOINTS))) == "INVALID_STATE"
+
+
+@pytest.mark.parametrize("battery_pct", [10.0, 0.0])
+def test_start_mission_with_battery_at_or_below_10_pct_gets_nack_battery_too_low_and_no_mission(
+    battery_pct: float,
+) -> None:
+    flight = Flight()
+    flight.hovering()
+    flight.set(battery_pct=battery_pct)
+
+    result = flight.send("START_MISSION", mission(offset_point(north_m=100.0)))
+
+    assert nack_reason(result) == "BATTERY_TOO_LOW"
+    assert not flight.drone.mission_active

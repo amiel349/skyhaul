@@ -28,6 +28,7 @@ NOT_AIRBORNE: Final = "the drone is not airborne"
 NOT_ARMED_OR_AIRBORNE: Final = "the drone is neither armed nor airborne"
 MISSION_RUNNING: Final = "a mission is active"
 BATTERY_LOW: Final = "battery below 15 percent"
+BATTERY_CRITICAL: Final = "battery at or below 10 percent: the drone only returns home or lands"
 TARGET_OUTSIDE: Final = "the target is outside the geofence"
 WAYPOINT_OUTSIDE: Final = "a waypoint is outside the geofence"
 
@@ -63,6 +64,8 @@ def handle_goto(world: World, command: Message[Any], now: float) -> list[Outgoin
     point = GeoPoint(payload.lat, payload.lon)
     if not d.airborne:
         return [nack_command(command, NackReason.INVALID_STATE, NOT_AIRBORNE)]
+    if _battery_critical(d):
+        return [nack_command(command, NackReason.BATTERY_TOO_LOW, BATTERY_CRITICAL)]
     if d.mission_active:
         return [nack_command(command, NackReason.MISSION_ACTIVE, MISSION_RUNNING)]
     if not behaviors.inside_geofence(d, point):
@@ -109,6 +112,8 @@ def handle_start_mission(world: World, command: Message[Any], now: float) -> lis
     waypoints = tuple(Target(GeoPoint(wp.lat, wp.lon), wp.altitude_m) for wp in payload.waypoints)
     if not (d.state is FlightState.ARMED or d.airborne):
         return [nack_command(command, NackReason.INVALID_STATE, NOT_ARMED_OR_AIRBORNE)]
+    if _battery_critical(d):
+        return [nack_command(command, NackReason.BATTERY_TOO_LOW, BATTERY_CRITICAL)]
     if d.mission_active:
         return [nack_command(command, NackReason.MISSION_ACTIVE, MISSION_RUNNING)]
     if not all(behaviors.inside_geofence(d, wp.point) for wp in waypoints):
@@ -131,3 +136,10 @@ def _moved_by(world: World, command: Message[Any], now: float) -> None:
     """Start the POSITION job, or give the running one this command's correlation_id.
     Same period, so a running job keeps its next due time."""
     world.upsert(behaviors.position_job(command.drone_id, now, command.correlation_id))
+
+
+def _battery_critical(d: Drone) -> bool:
+    """At or below the critical level a drone only returns home or lands: GOTO and
+    START_MISSION are refused, so a dispatcher can't redirect a drone that is going home
+    on its last charge (or one that is forced to land at 0 %)."""
+    return d.battery_pct <= behaviors.CRITICAL_BATTERY_PCT
