@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "skyhaul-sim": {
+      "command": "uv",
+      "args": ["run", "--package", "skyhaul-mcp-sim", "skyhaul-mcp-sim"],
+      "env": {
+        "SIM_CONTROL_URL": "${SIM_CONTROL_URL:-http://127.0.0.1:8100}",
+        "SIM_CONTROL_TOKEN": "${SIM_CONTROL_TOKEN:-}",
+        "RABBITMQ_HOST": "${RABBITMQ_HOST:-127.0.0.1}",
+        "RABBITMQ_PORT": "${RABBITMQ_PORT:-5672}",
+        "RABBITMQ_USER": "${RABBITMQ_USER:-}",
+        "RABBITMQ_PASSWORD": "${RABBITMQ_PASSWORD:-}"
+      }
+    }
+  }
+}

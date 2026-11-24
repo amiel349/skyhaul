@@ -1,0 +1,26 @@
+[project]
+name = "skyhaul-mcp-sim"
+version = "0.0.0"
+description = "Skyhaul MCP server for the drone simulator: control API and a ground station on RabbitMQ"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1,<1",
+    # Pinned exactly: the 1.x line (FastMCP on httpx). Bump on purpose, never by accident.
+    "mcp==1.30.0",
+    "pika>=1.4.4,<2",
+    "pydantic>=2.14.3,<3",
+    "skyhaul-contracts",
+]
+
+[project.scripts]
+skyhaul-mcp-sim = "skyhaul_mcp_sim.__main__:run"
+
+[tool.uv.sources]
+skyhaul-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skyhaul_mcp_sim"]

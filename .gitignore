@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# direnv: each developer's own (e.g. `dotenv` to export .env for the MCP server)
+.envrc
 *.pem
 *.key
 secrets/

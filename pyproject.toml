@@ -3,7 +3,7 @@ name = "skyhaul"
 version = "0.0.0"
 description = "Drone delivery operations platform with a multithreaded drone simulator and an AI-assisted test automation framework"
 requires-python = ">=3.12"
-dependencies = ["skyhaul-api", "skyhaul-contracts", "skyhaul-drone-sim"]
+dependencies = ["skyhaul-api", "skyhaul-contracts", "skyhaul-drone-sim", "skyhaul-mcp-sim"]
 
 [tool.uv]
 package = false
@@ -15,6 +15,7 @@ members = ["services/*", "contracts"]
 skyhaul-api = { workspace = true }
 skyhaul-contracts = { workspace = true }
 skyhaul-drone-sim = { workspace = true }
+skyhaul-mcp-sim = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -57,7 +58,8 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["services", "contracts"]
 addopts = "--import-mode=importlib -ra"
-# Shared simulator test helpers (`sim_support`): fakes, builders and the command client.
-pythonpath = ["services/drone_sim/tests"]
+# Shared test helpers: `sim_support` (simulator fakes, builders, the command client) and
+# `mcp_support` (MCP server harness with a mocked control API and a fake broker).
+pythonpath = ["services/drone_sim/tests", "services/mcp_sim/tests"]
 markers = ["integration: needs Docker (Testcontainers); run with `make test-integration`"]
 timeout = 30
