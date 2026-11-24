@@ -29,7 +29,7 @@ from skyhaul_drone_sim.board import JobsBoard, ResetResult
 from skyhaul_drone_sim.clock import Clock, SystemClock
 from skyhaul_drone_sim.config import SimConfig
 from skyhaul_drone_sim.consumer import Consumer
-from skyhaul_drone_sim.control_api import ControlServer, create_app
+from skyhaul_drone_sim.control_api import ControlServer, ResetNotConfirmed, create_app
 from skyhaul_drone_sim.model import GeoPoint
 from skyhaul_drone_sim.outbox import SENTINEL, Outbox, new_outbox
 from skyhaul_drone_sim.publisher import Publisher
@@ -153,10 +153,16 @@ class Simulator:
     def reset(self, namespace: str) -> ResetResult:
         """Reset the namespace on the board (atomic, bumps its epoch), then wait for the
         message in flight in the publisher. When this returns, nothing produced for the
-        namespace before the reset will be published (ADR 0009)."""
+        namespace before the reset will be published (ADR 0009). If the publisher's current
+        message doesn't finish within the fence, raise `ResetNotConfirmed` instead of
+        reporting success; resetting again is safe."""
         result = self.board.reset(namespace)
         if self.publisher.is_alive() and not self.publisher.wait_for_in_flight(RESET_FENCE_S):
-            log.warning("reset did not see the publisher finish its current message")
+            log.warning(
+                "reset not confirmed: the publisher did not finish its current message",
+                extra={"namespace": namespace},
+            )
+            raise ResetNotConfirmed(namespace)
         return result
 
     def stop(self) -> None:

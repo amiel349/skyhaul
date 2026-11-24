@@ -51,6 +51,13 @@ POLL_S: Final = 0.2
 type Health = Callable[[], bool]
 type Stats = Callable[[], dict[str, Any]]
 type Reset = Callable[[str], ResetResult]
+
+
+class ResetNotConfirmed(Exception):
+    """The board was reset, but a publish that began before it didn't finish in time, so a
+    pre-reset message could still go out. `/reset` answers 503 and the caller retries."""
+
+
 """`Simulator.reset`: the board reset plus the wait for the publisher's in-flight message."""
 
 
@@ -193,7 +200,15 @@ def create_app(
     @app.post("/reset")
     def post_reset() -> Response:
         body = _parse(ResetRequest)
-        result = reset_namespace(body.namespace)
+        try:
+            result = reset_namespace(body.namespace)
+        except ResetNotConfirmed:
+            raise ApiError(
+                503,
+                "reset_unconfirmed",
+                "the namespace was reset, but a message already being sent has not finished;"
+                " retry the reset",
+            ) from None
         return jsonify(
             namespace=result.namespace,
             drones_removed=result.drones_removed,

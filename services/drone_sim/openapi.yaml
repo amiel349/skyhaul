@@ -139,6 +139,11 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "503":
+          description: The namespace was reset, but a message already being sent did not finish in time, so a pre-reset message could still be published. Reset again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /stats:
     get:

@@ -301,3 +301,18 @@ def test_empty_namespace_resets_twice_and_missing_or_wildcard_is_400(
     assert (second.status_code, second.json["epoch"]) == (200, 2)  # type: ignore[index]
     assert invalid.status_code == 400
     assert set(invalid.json or {}) == {"error", "detail"}
+
+
+def test_reset_that_cannot_confirm_the_publisher_fence_answers_503_and_a_retry_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with running_simulator() as run:
+        run.client.spawn("w1", 2)
+        monkeypatch.setattr(run.sim.publisher, "wait_for_in_flight", lambda timeout_s: False)
+
+        reply = run.client.call("POST", "/reset", {"namespace": "w1"})
+
+        assert reply.status == 503
+        assert reply.body["error"] == "reset_unconfirmed"
+        monkeypatch.undo()
+        assert run.client.reset("w1")["namespace"] == "w1"
