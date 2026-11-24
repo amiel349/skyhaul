@@ -12,7 +12,8 @@ fi
 umask 077
 while IFS= read -r line || [[ -n "$line" ]]; do
   if [[ "$line" =~ ^([A-Z_]+)=$ && "${BASH_REMATCH[1]}" != "ANTHROPIC_API_KEY" ]]; then
-    echo "${BASH_REMATCH[1]}=$(openssl rand -hex 24)"
+    # 32 random bytes: 64 hex characters, above the control token's 32-character minimum.
+    echo "${BASH_REMATCH[1]}=$(openssl rand -hex 32)"
   else
     echo "$line"
   fi

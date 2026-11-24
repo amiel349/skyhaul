@@ -1,6 +1,6 @@
 COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
 
-.PHONY: help setup env up down logs ps lint typecheck test test-integration contracts contracts-check check secrets
+.PHONY: help setup env up sim down logs ps lint typecheck test test-integration contracts contracts-check check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -16,8 +16,11 @@ env: ## Create .env with generated secrets
 up: ## Start the local stack
 	$(COMPOSE) up -d --build --wait
 
+sim: ## Start RabbitMQ and the drone simulator with its control API (test profile)
+	$(COMPOSE) --profile test up -d --build --wait rabbitmq drone-sim
+
 down: ## Stop the local stack
-	$(COMPOSE) down
+	$(COMPOSE) --profile test down
 
 logs: ## Follow logs of the local stack
 	$(COMPOSE) logs -f

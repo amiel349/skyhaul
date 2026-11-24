@@ -58,8 +58,8 @@ services:
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
 
-  # Test profile only: `docker compose --profile test up`. The control API port
-  # (127.0.0.1:8100) and its /healthz check arrive with #9.
+  # Test profile only (`make sim`, or `docker compose --profile test up`). Its control API
+  # is a test surface behind SIM_CONTROL_TOKEN, published on the host's 127.0.0.1 only.
   drone-sim:
     profiles: ["test"]
     build:
@@ -69,12 +69,17 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER:?run make env}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?run make env}
+      SIM_CONTROL_TOKEN: ${SIM_CONTROL_TOKEN:?run make env}
+      # Inside the container's own network namespace; the host side is 127.0.0.1 below.
+      SIM_CONTROL_HOST: 0.0.0.0
       SIM_DEBUG_TAP: ${SIM_DEBUG_TAP:-0}
+    ports:
+      - "127.0.0.1:8100:8100"
     depends_on:
       rabbitmq: { condition: service_healthy }
-    # For now healthy means the process is alive; it exits when RabbitMQ stays unreachable.
+    # 200 only while the consumer, scheduler and publisher run and both connections are open.
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 10
