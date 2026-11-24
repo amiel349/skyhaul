@@ -58,7 +58,7 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.Column("correlation_id", sa.UUID(), nullable=False),
+        sa.Column("correlation_id", sa.UUID(), nullable=True),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.PrimaryKeyConstraint("msg_id", name=op.f("pk_telemetry")),
     )

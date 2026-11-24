@@ -14,6 +14,7 @@ from skyhaul_fleet_core.models import (
     Mission,
     MissionState,
     Role,
+    Telemetry,
     User,
 )
 from skyhaul_fleet_core.transitions import cas_update
@@ -125,3 +126,17 @@ def test_cas_update_moves_a_row_only_from_an_allowed_state(session: Session) -> 
     assert not cas_update(session, Command, command.id, CommandStatus.NACKED)  # terminal
     session.expire(command)
     assert (command.status, command.late, command.sent_at) == (CommandStatus.ACKED, True, sent_at)
+
+
+def test_drone_initiated_telemetry_without_a_correlation_id_is_stored(session: Session) -> None:
+    session.add(
+        Telemetry(
+            msg_id=uuid.uuid4(),
+            drone_id="main-d001",
+            type="BATTERY",
+            ts=datetime.now(UTC),
+            correlation_id=None,
+            payload={"charge_pct": 80.0, "est_remaining_s": 900},
+        )
+    )
+    session.flush()

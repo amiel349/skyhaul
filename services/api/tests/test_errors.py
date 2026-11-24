@@ -7,6 +7,7 @@ import logging
 import uuid
 
 import pytest
+from flask import Flask
 from flask.testing import FlaskClient
 from jsonschema import Draft202012Validator
 from skyhaul_api.logs import JsonFormatter
@@ -102,3 +103,21 @@ def test_a_body_over_64_kib_gets_413_with_the_error_shape(
     error_validator.validate(response.get_json())
     assert response.get_json()["error"] == "payload_too_large"
     assert "X-Request-ID" in response.headers
+
+
+def test_a_log_records_own_correlation_id_is_kept_during_a_request(app: Flask) -> None:
+    import logging
+
+    from skyhaul_api.logs import RequestIdFilter
+
+    record = logging.LogRecord("t", logging.INFO, __file__, 1, "command sent", None, None)
+    record.correlation_id = "command-correlation"
+    plain = logging.LogRecord("t", logging.INFO, __file__, 1, "request log", None, None)
+
+    with app.test_request_context(headers={"X-Request-ID": "6f1f2a62-3a5c-4c7e-9a1b-2b3c4d5e6f70"}):
+        RequestIdFilter().filter(record)
+        RequestIdFilter().filter(plain)
+
+    assert record.correlation_id == "command-correlation"
+    assert record.request_id == "6f1f2a62-3a5c-4c7e-9a1b-2b3c4d5e6f70"
+    assert plain.correlation_id == plain.request_id == "6f1f2a62-3a5c-4c7e-9a1b-2b3c4d5e6f70"

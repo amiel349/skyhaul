@@ -235,7 +235,8 @@ class Telemetry(Base):
     type: Mapped[str]
     ts: Mapped[datetime]
     received_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    correlation_id: Mapped[uuid.UUID]
+    # Null for drone-initiated telemetry (HEARTBEAT, BATTERY, ALERT) per the contracts.
+    correlation_id: Mapped[uuid.UUID | None]
     payload: Mapped[dict[str, Any]]
 
 

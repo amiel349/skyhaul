@@ -41,11 +41,16 @@ class JsonFormatter(logging.Formatter):
 
 
 class RequestIdFilter(logging.Filter):
-    """Adds the current request id to records logged during a request."""
+    """Adds the current request id to records logged during a request. A record's own
+    `correlation_id` (for example a command's) is kept; the request id fills it only when
+    the record has none."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if has_request_context() and getattr(record, "request_id", None) is None:
-            record.request_id = record.correlation_id = request_id()
+        if has_request_context():
+            rid = getattr(record, "request_id", None) or request_id()
+            record.request_id = rid
+            if getattr(record, "correlation_id", None) is None:
+                record.correlation_id = rid
         return True
 
 
