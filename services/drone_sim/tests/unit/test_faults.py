@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from flask.testing import FlaskClient
 from sim_support.config import sim_config
-from sim_support.drones import spawned_board
+from sim_support.drones import make_drone, spawned_board
 from sim_support.flight import Flight, goto, of_type, offset_point, reply_type
 from sim_support.messages import command
 from skyhaul_contracts import FlightState, MessageType
@@ -156,6 +156,19 @@ def test_with_1000_delayed_replies_waiting_the_next_command_gets_nack_internal_e
     assert nack.message.type is MessageType.NACK
     assert nack.message.payload.reason == "INTERNAL_ERROR"
     assert flight.drone.cruise_mps == 5.0  # not applied
+
+
+def test_deleting_a_drone_drops_its_delayed_replies_so_they_stop_counting_toward_the_cap() -> None:
+    flight = Flight()
+    inject(flight, FaultKind.REPLY_DELAY, delay_s=30.0)
+    for _ in range(MAX_DELAYED_PER_NAMESPACE):
+        assert flight.send("SET_SPEED", SetSpeedPayload(speed_mps=5.0)).delayed
+
+    assert flight.board.remove_drone(flight.drone_id)
+    flight.board.add_drone(make_drone(flight.drone_id))
+    inject(flight, FaultKind.REPLY_DELAY, delay_s=30.0)
+
+    assert flight.send("SET_SPEED", SetSpeedPayload(speed_mps=6.0)).delayed
 
 
 # --- battery drain and GPS drift -------------------------------------------------------

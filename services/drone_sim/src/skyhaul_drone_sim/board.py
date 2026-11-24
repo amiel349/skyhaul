@@ -244,6 +244,14 @@ class _DelayedReplies:
             due.append(out)
         return due
 
+    def drop_drone(self, drone_id: str) -> None:
+        kept = [item for item in self._heap if item[2].message.drone_id != drone_id]
+        for _, _, out in self._heap:
+            if out.message.drone_id == drone_id:
+                self._per_namespace[out.namespace] -= 1
+        self._heap = kept
+        heapq.heapify(self._heap)
+
     def drop_namespace(self, namespace: str) -> None:
         self._heap = [item for item in self._heap if item[2].namespace != namespace]
         heapq.heapify(self._heap)
@@ -583,12 +591,14 @@ class JobsBoard:
             return ids
 
     def remove_drone(self, drone_id: str) -> bool:
-        """Remove a drone and its jobs. False if there was no such drone."""
+        """Remove a drone, its jobs and its waiting delayed replies (so they stop counting
+        toward the namespace cap). False if there was no such drone."""
         with self._locked():
             if self._drones.pop(drone_id, None) is None:
                 return False
             for key in [key for key in self._jobs if key[0] == drone_id]:
                 del self._jobs[key]
+            self._delayed.drop_drone(drone_id)
             return True
 
     def reset(self, namespace: str) -> ResetResult:
