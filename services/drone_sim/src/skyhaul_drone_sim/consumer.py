@@ -41,6 +41,8 @@ log = logging.getLogger(__name__)
 POLL_S: Final = 0.2
 """How often the consume loop checks the stop event."""
 
+RECONNECT_PAUSE_S: Final = 0.5
+
 _ROUTING_KEY_MAX_LOGGED: Final = 128
 
 
@@ -110,6 +112,9 @@ class Consumer:
             finally:
                 self.connected.clear()
                 close_quietly(connection)
+            # A channel error right after connecting (e.g. PRECONDITION_FAILED) must not
+            # turn into a tight reconnect loop.
+            self._stop.wait(RECONNECT_PAUSE_S)
 
     def _consume(self, connection: Any) -> None:
         channel = connection.channel()

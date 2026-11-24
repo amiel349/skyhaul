@@ -232,3 +232,20 @@ def test_publisher_that_cannot_connect_reports_failure() -> None:
     assert publisher.ready.wait(DEADLINE_S)
     publisher.join(DEADLINE_S)
     assert publisher.failed
+
+
+def test_a_message_the_broker_keeps_refusing_is_dropped_at_the_drain_deadline() -> None:
+    from pika.exceptions import NackError
+
+    broker, outbox, stop = FakeBroker(), new_outbox(10), threading.Event()
+    broker.prepare = lambda c: c.publish_errors.extend(NackError([]) for _ in range(100_000))
+    publisher = make_publisher(broker, outbox, stop, drain_s=0.2)
+    outbox.put(outgoing())
+    stop.set()
+    publisher.begin_drain()
+
+    publisher.start()
+    publisher.join(DEADLINE_S)
+
+    assert not publisher.is_alive()
+    assert publisher.dropped == 1

@@ -143,6 +143,9 @@ class Publisher:
                 return
             except NackError:
                 log.warning("broker refused a message, sending it again")
+                if self._past_deadline():
+                    self.dropped += 1
+                    return
             except (AMQPConnectionError, AMQPChannelError) as exc:
                 log.warning(
                     "publisher connection lost, reconnecting",
