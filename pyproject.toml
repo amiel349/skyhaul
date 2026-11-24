@@ -3,7 +3,13 @@ name = "skyhaul"
 version = "0.0.0"
 description = "Drone delivery operations platform with a multithreaded drone simulator and an AI-assisted test automation framework"
 requires-python = ">=3.12"
-dependencies = ["skyhaul-api", "skyhaul-contracts", "skyhaul-drone-sim", "skyhaul-mcp-sim"]
+dependencies = [
+    "skyhaul-api",
+    "skyhaul-contracts",
+    "skyhaul-drone-sim",
+    "skyhaul-fleet-core",
+    "skyhaul-mcp-sim",
+]
 
 [tool.uv]
 package = false
@@ -15,6 +21,7 @@ members = ["services/*", "contracts"]
 skyhaul-api = { workspace = true }
 skyhaul-contracts = { workspace = true }
 skyhaul-drone-sim = { workspace = true }
+skyhaul-fleet-core = { workspace = true }
 skyhaul-mcp-sim = { workspace = true }
 
 [dependency-groups]
@@ -28,7 +35,7 @@ dev = [
     "pytest-cov>=7.0",
     "pytest-timeout>=2.4",
     "ruff>=0.14",
-    "testcontainers[rabbitmq]>=4.15",
+    "testcontainers[postgres,rabbitmq,redis]>=4.15",
 ]
 
 [tool.ruff]
@@ -54,6 +61,16 @@ files = ["services/*/src", "contracts/src", "contracts/scripts"]
 # pika ships no type information.
 module = ["pika", "pika.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# flask-smorest ships no type information.
+module = ["flask_smorest", "flask_smorest.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Route modules: flask-smorest's decorators are untyped.
+module = ["skyhaul_api.health", "skyhaul_api.*.routes"]
+disallow_untyped_decorators = false
 
 [tool.pytest.ini_options]
 testpaths = ["services", "contracts"]

@@ -2,6 +2,9 @@
 minimumReleaseAge: 10080
 
 # Held back to a version older than 14 days, the age rule for newly added dependencies
-# (transitive via json-schema-to-typescript). Drop once Dependabot moves past it.
+# (transitive via json-schema-to-typescript, or openapi-typescript for the last two).
+# Drop each once Dependabot moves past it.
 overrides:
   prettier: 3.9.10
+  brace-expansion@^2: 2.1.7
+  uri-js-replace: 1.0.2
