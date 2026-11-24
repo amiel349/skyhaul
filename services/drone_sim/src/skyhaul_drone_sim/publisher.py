@@ -29,6 +29,14 @@ log = logging.getLogger(__name__)
 IDLE_S: Final = 0.5
 """How long `outbox.get` waits before servicing the connection (heartbeats)."""
 
+NACK_ATTEMPTS: Final = 5
+"""How many times one message is offered to a broker that nacks it before it is dropped.
+Without a cap, one message the broker keeps refusing would pin this thread, fill the
+outbox and stop the consumer."""
+
+NACK_BACKOFF_S: Final = 0.05
+"""First wait between attempts after a nack; doubles each time, capped at 1 s."""
+
 
 class PublisherThreadError(RuntimeError):
     """Something other than the publisher thread tried to publish."""
@@ -133,6 +141,7 @@ class Publisher:
         exchange = exchange_for(message.type)
         routing_key = Codec.routing_key(message.drone_id, message.type.value)
         properties = Codec.amqp_properties(message, persistent=out.persistent)
+        nacks = 0
         while True:
             try:
                 # mandatory=False: telemetry nobody subscribes to is fine to drop.
@@ -142,10 +151,17 @@ class Publisher:
                 self.published += 1
                 return
             except NackError:
-                log.warning("broker refused a message, sending it again")
-                if self._past_deadline():
+                nacks += 1
+                if nacks >= NACK_ATTEMPTS or self._past_deadline():
+                    log.error(
+                        "broker kept refusing a message, dropped",
+                        extra={"msg_id": message.msg_id, "type": message.type.value},
+                    )
                     self.dropped += 1
                     return
+                log.warning("broker refused a message, sending it again")
+                # Back off; the stop event ends the wait early so shutdown is not delayed.
+                self._stop.wait(min(NACK_BACKOFF_S * 2 ** (nacks - 1), 1.0))
             except (AMQPConnectionError, AMQPChannelError) as exc:
                 log.warning(
                     "publisher connection lost, reconnecting",

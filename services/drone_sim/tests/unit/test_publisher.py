@@ -234,6 +234,50 @@ def test_publisher_that_cannot_connect_reports_failure() -> None:
     assert publisher.failed
 
 
+def test_a_message_the_broker_keeps_refusing_is_dropped_while_running_and_the_next_one_goes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pika.exceptions import NackError
+    from skyhaul_drone_sim import publisher as publisher_module
+
+    monkeypatch.setattr(publisher_module, "NACK_BACKOFF_S", 0.0, raising=False)
+    broker, outbox, stop = FakeBroker(), new_outbox(10), threading.Event()
+    attempts = getattr(publisher_module, "NACK_ATTEMPTS", 5)
+    broker.prepare = lambda c: c.publish_errors.extend(NackError([]) for _ in range(attempts))
+    publisher = make_publisher(broker, outbox, stop)
+    publisher.start()
+    outbox.put(outgoing(n=1))
+    outbox.put(outgoing(n=2))
+
+    wait_for(lambda: len(published(broker)) == 1)
+
+    assert not stop.is_set()
+    assert publisher.is_alive()
+    assert publisher.dropped == 1
+    assert publisher.published == 1
+    stop_publisher(publisher, outbox, stop)
+
+
+def test_a_message_nacked_fewer_times_than_the_cap_is_still_published(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pika.exceptions import NackError
+    from skyhaul_drone_sim import publisher as publisher_module
+
+    monkeypatch.setattr(publisher_module, "NACK_BACKOFF_S", 0.0, raising=False)
+    broker, outbox, stop = FakeBroker(), new_outbox(10), threading.Event()
+    retries = getattr(publisher_module, "NACK_ATTEMPTS", 5) - 1
+    broker.prepare = lambda c: c.publish_errors.extend(NackError([]) for _ in range(retries))
+    publisher = make_publisher(broker, outbox, stop)
+    publisher.start()
+    outbox.put(outgoing())
+
+    wait_for(lambda: len(published(broker)) == 1)
+
+    assert publisher.dropped == 0
+    stop_publisher(publisher, outbox, stop)
+
+
 def test_a_message_the_broker_keeps_refusing_is_dropped_at_the_drain_deadline() -> None:
     from pika.exceptions import NackError
 
