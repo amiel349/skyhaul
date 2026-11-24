@@ -117,10 +117,57 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /drones/{drone_id}/faults:
+    parameters:
+      - name: drone_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    post:
+      operationId: addFault
+      summary: Inject a fault into one drone
+      description: |
+        Replaces an active fault of the same kind. A fault with `duration_s` expires on the
+        scheduler tick at or after that many seconds; NACK_NEXT ends when its count is used
+        up. LINK_LOSS: commands are acked and dropped, nothing is published, physics keeps
+        running; when it expires, one ALERT LINK_RESTORED (INFO). NACK_NEXT: the next
+        `count` new commands get NACK INJECTED. REPLY_DELAY: replies are published no
+        earlier than `delay_s` after the command (at most 1000 waiting per namespace, then
+        NACK INTERNAL_ERROR). BATTERY_DRAIN: drain times `factor`. GPS_DRIFT: the reported
+        position is up to `drift_m` from the true one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FaultRequest" }
+      responses:
+        "201":
+          description: The fault, now active
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [fault]
+                properties:
+                  fault: { $ref: "#/components/schemas/Fault" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+    delete:
+      operationId: clearFaults
+      summary: Remove all of the drone's faults; it behaves normally from the next tick
+      description: Ending a link loss this way sends no LINK_RESTORED.
+      responses:
+        "204": { description: Cleared }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /reset:
     post:
       operationId: resetNamespace
-      summary: Remove the namespace's drones, jobs and dedup caches and bump its epoch
+      summary: Remove the namespace's drones, jobs, faults, dedup caches and delayed replies and bump its epoch
       description: |
         Atomic. Resets the namespace's id counter, so the next spawn starts at d001.
         Nothing produced for the namespace before the reset is published after it returns.
@@ -256,6 +303,68 @@ components:
         jobs_removed: { type: integer, minimum: 0 }
         epoch: { type: integer, minimum: 1 }
 
+    FaultDuration:
+      description: Seconds until the fault expires
+      type: number
+      minimum: 1
+      maximum: 600
+
+    FaultRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, duration_s]
+          properties:
+            kind: { const: LINK_LOSS }
+            duration_s: { $ref: "#/components/schemas/FaultDuration" }
+        - type: object
+          additionalProperties: false
+          required: [kind, count]
+          properties:
+            kind: { const: NACK_NEXT }
+            count: { type: integer, minimum: 1, maximum: 100 }
+        - type: object
+          additionalProperties: false
+          required: [kind, delay_s]
+          properties:
+            kind: { const: REPLY_DELAY }
+            delay_s: { type: number, minimum: 0.1, maximum: 30 }
+            duration_s:
+              oneOf: [{ $ref: "#/components/schemas/FaultDuration" }, { type: "null" }]
+        - type: object
+          additionalProperties: false
+          required: [kind, factor]
+          properties:
+            kind: { const: BATTERY_DRAIN }
+            factor: { type: number, minimum: 1, maximum: 100 }
+            duration_s:
+              oneOf: [{ $ref: "#/components/schemas/FaultDuration" }, { type: "null" }]
+        - type: object
+          additionalProperties: false
+          required: [kind, drift_m]
+          properties:
+            kind: { const: GPS_DRIFT }
+            drift_m: { type: number, minimum: 1, maximum: 500 }
+            duration_s:
+              oneOf: [{ $ref: "#/components/schemas/FaultDuration" }, { type: "null" }]
+
+    Fault:
+      description: |
+        An active fault: its kind, its parameter (`count` is what is left of NACK_NEXT),
+        and the seconds until it expires, or null when it lasts until cleared.
+      type: object
+      additionalProperties: false
+      required: [kind, expires_in_s]
+      properties:
+        kind:
+          type: string
+          enum: [LINK_LOSS, NACK_NEXT, REPLY_DELAY, BATTERY_DRAIN, GPS_DRIFT]
+        count: { type: integer, minimum: 1, maximum: 100 }
+        delay_s: { type: number }
+        factor: { type: number }
+        drift_m: { type: number }
+        expires_in_s: { type: [number, "null"], minimum: 0 }
+
     FlightState:
       type: string
       enum: [LANDED, ARMED, TAKING_OFF, HOVERING, FLYING, RETURNING, LANDING]
@@ -294,9 +403,9 @@ components:
             - $ref: "#/components/schemas/Mission"
             - type: "null"
         faults:
-          description: Active faults (fault injection adds their shape)
+          description: Active faults, at most one per kind
           type: array
-          items: { type: object }
+          items: { $ref: "#/components/schemas/Fault" }
 
     DroneDetail:
       type: object
@@ -315,7 +424,7 @@ components:
             - type: "null"
         faults:
           type: array
-          items: { type: object }
+          items: { $ref: "#/components/schemas/Fault" }
         target:
           oneOf:
             - type: object

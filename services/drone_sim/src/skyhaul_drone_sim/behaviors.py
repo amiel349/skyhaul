@@ -158,9 +158,10 @@ def render_position(d: Drone, job: Job, now: float) -> PositionPayload:
     target = None
     if d.target is not None:
         target = WireGeoPoint(lat=float(d.target.point.lat), lon=float(d.target.point.lon))
+    reported = reported_pos(d)
     return PositionPayload(
-        lat=float(d.pos.lat),
-        lon=float(d.pos.lon),
+        lat=float(reported.lat),
+        lon=float(reported.lon),
         altitude_m=_clamp(d.altitude_m, MAX_REPORTED_ALTITUDE_M),
         heading_deg=float(d.heading_deg),
         ground_speed_mps=_clamp(d.ground_speed_mps, MAX_REPORTED_SPEED_MPS),
@@ -180,6 +181,14 @@ def render_mission_status(d: Drone, job: Job, now: float) -> MissionStatusPayloa
         waypoints_total=total,
         progress_pct=100.0 * mission.index / total,
     )
+
+
+def reported_pos(d: Drone) -> GeoPoint:
+    """Where the drone says it is: the true position plus the GPS_DRIFT offset, if any."""
+    north_m, east_m = d.gps_offset_m
+    if north_m == 0.0 and east_m == 0.0:
+        return d.pos
+    return physics.shifted(d.pos, north_m, east_m)
 
 
 def _clamp(value: float, high: float) -> float:
@@ -295,7 +304,8 @@ def check_alerts(d: Drone) -> list[Outgoing]:
     if d.battery_pct <= 0.0 and d.airborne and d.state is not FlightState.LANDING:
         _end_mission_from_tick(d)
         land_in_place(d)
-    outside_m = physics.distance_m(d.home, d.pos) - d.geofence_radius_m
+    # Follows the reported position, as a ground station would see it (ADR 0008).
+    outside_m = physics.distance_m(d.home, reported_pos(d)) - d.geofence_radius_m
     if _crossed(d, AlertCode.GEOFENCE_BREACH, outside_m > 0):
         alerts.append(_alert(d, AlertCode.GEOFENCE_BREACH, AlertSeverity.WARNING, outside_m))
     return alerts

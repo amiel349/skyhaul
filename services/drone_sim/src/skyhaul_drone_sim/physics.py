@@ -1,11 +1,13 @@
 """Straight-line movement and the battery model (ADR 0008). Pure functions with an explicit
-`dt`, so tests on a controlled clock are exact. No I/O, no clock, no randomness."""
+`dt`, so tests on a controlled clock are exact. No I/O, no clock, no randomness. The only
+fault read here is BATTERY_DRAIN."""
 
 import math
 from typing import Final
 
 from skyhaul_contracts import FlightState
 
+from skyhaul_drone_sim.faults import drain_factor
 from skyhaul_drone_sim.model import Drone, GeoPoint, Target
 
 M_PER_DEG: Final = 111_320.0
@@ -105,7 +107,16 @@ def drain_rate_pct_s(d: Drone) -> float:
 
 
 def drain_battery(d: Drone, dt: float) -> None:
-    d.battery_pct = max(0.0, d.battery_pct - drain_rate_pct_s(d) * dt)
+    """Drain for `dt` seconds, times the BATTERY_DRAIN fault's factor when it is active."""
+    d.battery_pct = max(0.0, d.battery_pct - drain_rate_pct_s(d) * drain_factor(d) * dt)
+
+
+def shifted(point: GeoPoint, north_m: float, east_m: float) -> GeoPoint:
+    """`point` moved by (north, east) meters, on a flat earth around it."""
+    return GeoPoint(
+        lat=point.lat + north_m / M_PER_DEG,
+        lon=point.lon + east_m / (M_PER_DEG * math.cos(math.radians(point.lat))),
+    )
 
 
 def est_remaining_s(d: Drone) -> int:

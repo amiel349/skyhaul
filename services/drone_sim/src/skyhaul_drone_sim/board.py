@@ -32,26 +32,39 @@ dedup caches live on the drones), resets its counter and bumps its epoch, all un
 lock. Every message leaving the board is stamped with its namespace's current epoch while
 the lock is held, and the publisher sends it only if `is_current` still holds, so nothing
 produced before a reset is published after it.
+
+Faults (#10, `faults.py`) live on the drones, so they change under the same lock. `due()`
+expires them first on every tick, then emits the delayed replies that fell due (REPLY_DELAY),
+then runs the jobs. A drone in LINK_LOSS keeps ticking (it moves and drains), but nothing it
+produces is emitted. Delayed replies are stamped with their namespace epoch when they are
+scheduled and keep that stamp; at most MAX_DELAYED_PER_NAMESPACE wait per namespace, and
+`reset(ns)` drops the namespace's waiting ones.
 """
 
 import copy
 import dataclasses
+import heapq
+import itertools
 import math
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 from pydantic import BaseModel
 from skyhaul_contracts import MessageType, TelemetryType
 
+from skyhaul_drone_sim.faults import Fault, apply_fault, clear_faults, link_lost, tick_faults
 from skyhaul_drone_sim.model import Drone
 from skyhaul_drone_sim.namespaces import MAX_DRONES_PER_NAMESPACE, namespace_of, nth_drone_id
-from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list, new_message
+from skyhaul_drone_sim.outbox import UNSTAMPED, Outgoing, is_outgoing_list, new_message
 
 MAX_TICK_DT_S = 0.5
 """A tick never advances state by more than this, however long the scheduler stalled."""
+
+MAX_DELAYED_PER_NAMESPACE: Final = 1000
+"""Delayed replies (REPLY_DELAY) waiting per namespace. One more gets NACK INTERNAL_ERROR."""
 
 type JobType = TelemetryType
 type JobKey = tuple[str, JobType]
@@ -207,6 +220,44 @@ def _stamp(epochs: dict[str, int], out: Outgoing) -> Outgoing:
     return dataclasses.replace(out, namespace=namespace, epoch=epochs.get(namespace, 0))
 
 
+class _DelayedReplies:
+    """Replies waiting for their REPLY_DELAY to pass: a heap by due time, plus a count per
+    namespace. Not locked itself: used only under the board lock."""
+
+    def __init__(self) -> None:
+        self._heap: list[tuple[float, int, Outgoing]] = []
+        self._order = itertools.count()  # FIFO among replies due at the same time
+        self._per_namespace: dict[str, int] = {}
+
+    def count(self, namespace: str) -> int:
+        return self._per_namespace.get(namespace, 0)
+
+    def push(self, at: float, out: Outgoing) -> None:
+        heapq.heappush(self._heap, (at, next(self._order), out))
+        self._per_namespace[out.namespace] = self.count(out.namespace) + 1
+
+    def pop_due(self, now: float) -> list[Outgoing]:
+        due: list[Outgoing] = []
+        while self._heap and self._heap[0][0] <= now:
+            _, _, out = heapq.heappop(self._heap)
+            self._per_namespace[out.namespace] -= 1
+            due.append(out)
+        return due
+
+    def drop_drone(self, drone_id: str) -> None:
+        kept = [item for item in self._heap if item[2].message.drone_id != drone_id]
+        for _, _, out in self._heap:
+            if out.message.drone_id == drone_id:
+                self._per_namespace[out.namespace] -= 1
+        self._heap = kept
+        heapq.heapify(self._heap)
+
+    def drop_namespace(self, namespace: str) -> None:
+        self._heap = [item for item in self._heap if item[2].namespace != namespace]
+        heapq.heapify(self._heap)
+        self._per_namespace.pop(namespace, None)
+
+
 def _to_dict(entry: _Entry) -> dict[str, Any]:
     job = entry.job
     return {
@@ -231,24 +282,32 @@ class World:
     """
 
     __slots__ = (
+        "_delayed",
         "_drones",
         "_epochs",
         "_jobs",
         "_open",
         "_staged",
+        "_staged_delayed",
         "_staged_drones",
         "_unknown_drone_commands",
     )
 
     def __init__(
-        self, jobs: dict[JobKey, _Entry], drones: dict[str, Drone], epochs: dict[str, int]
+        self,
+        jobs: dict[JobKey, _Entry],
+        drones: dict[str, Drone],
+        epochs: dict[str, int],
+        delayed: _DelayedReplies,
     ) -> None:
         self._jobs = jobs
         self._drones = drones
         self._epochs = epochs
+        self._delayed = delayed
         self._open = True
         self._staged: dict[JobKey, Job | None] = {}
         self._staged_drones: dict[str, Drone] = {}
+        self._staged_delayed: list[tuple[float, Outgoing]] = []
         self._unknown_drone_commands = 0
 
     def has_drone(self, drone_id: str) -> bool:
@@ -309,15 +368,32 @@ class World:
         self._check_open()
         return [_stamp(self._epochs, out) for out in messages]
 
+    def can_delay(self, namespace: str, count: int = 1) -> bool:
+        """True if `count` more delayed replies fit in the namespace's bound."""
+        self._check_open()
+        staged = sum(1 for _, out in self._staged_delayed if out.namespace == namespace)
+        waiting = self._delayed.count(namespace) + staged
+        return waiting + count <= MAX_DELAYED_PER_NAMESPACE
+
+    def delay(self, at: float, messages: list[Outgoing]) -> None:
+        """Stage the messages to be emitted by the first `due(now)` with `now >= at`. They
+        are stamped with their namespace's current epoch now, and keep that stamp."""
+        self._check_open()
+        self._staged_delayed += [(at, _stamp(self._epochs, out)) for out in messages]
+
     def discard(self) -> None:
         """Drop every change staged in this transaction so far."""
         self._check_open()
         self._staged.clear()
         self._staged_drones.clear()
+        self._staged_delayed.clear()
 
     def _commit(self) -> None:
         self._drones.update(self._staged_drones)
         self._staged_drones.clear()
+        for at, out in self._staged_delayed:
+            self._delayed.push(at, out)
+        self._staged_delayed.clear()
         for key, job in self._staged.items():
             if job is None:
                 self._jobs.pop(key, None)
@@ -346,6 +422,7 @@ class JobsBoard:
         """Per namespace; a namespace never reset is at epoch 0."""
         self._spawned: dict[str, int] = {}
         """Per namespace: how many ids `spawn` has handed out since the last reset."""
+        self._delayed = _DelayedReplies()
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -386,7 +463,7 @@ class JobsBoard:
         dropped when it raises.
         """
         with self._locked():
-            world = World(self._jobs, self._drones, self._epochs)
+            world = World(self._jobs, self._drones, self._epochs, self._delayed)
             try:
                 yield world
                 world._commit()
@@ -418,6 +495,11 @@ class JobsBoard:
         this call, due or not (persistent if `final_persistent`), and is removed. A job
         whose drone is not on the board is reported in `errors` and removed.
 
+        Before the jobs, every drone's faults are ticked (expiry, LINK_RESTORED, GPS
+        drift), then the delayed replies due by `now` are emitted with the stamp they got
+        when scheduled. Nothing a drone in LINK_LOSS produces is emitted: not its job
+        messages or tick events, and not its delayed replies (they are dropped).
+
         Raises ValueError if `now` is not finite (a broken clock), before touching
         any job.
         """
@@ -427,6 +509,9 @@ class JobsBoard:
         messages: list[Outgoing] = []
         errors: list[JobError] = []
         with self._locked():
+            for each in self._drones.values():
+                messages.extend(tick_faults(each, now))
+            delayed = [out for out in self._delayed.pop_due(now) if self._deliverable(out)]
             finished: list[JobKey] = []
             for key, entry in self._jobs.items():
                 is_due = now >= entry.next_due
@@ -437,7 +522,8 @@ class JobsBoard:
                     continue
                 try:
                     produced, done = _run_job(drone, entry.job, now, dt, is_due)
-                    messages.extend(produced)
+                    if not link_lost(drone):
+                        messages.extend(produced)
                     if done:
                         finished.append(key)
                 except Exception as exc:
@@ -446,8 +532,34 @@ class JobsBoard:
                     _advance(entry, now)
             for key in finished:
                 del self._jobs[key]
-            messages = [_stamp(self._epochs, out) for out in messages]
+            messages = [_stamp(self._epochs, out) for out in messages] + delayed
         return DueResult(messages, errors)
+
+    def _deliverable(self, out: Outgoing) -> bool:
+        """A delayed reply goes out only if it is stamped with its namespace's current epoch
+        and its drone is still on the board and not in LINK_LOSS. Call under the lock."""
+        if out.epoch == UNSTAMPED or self._epochs.get(out.namespace, 0) != out.epoch:
+            return False
+        drone = self._drones.get(out.message.drone_id)
+        return drone is not None and not link_lost(drone)
+
+    def add_fault(self, drone_id: str, fault: Fault) -> bool:
+        """Put `fault` on the drone, replacing one of the same kind. False if no such drone."""
+        with self._locked():
+            drone = self._drones.get(drone_id)
+            if drone is None:
+                return False
+            apply_fault(drone, fault)
+            return True
+
+    def clear_faults(self, drone_id: str) -> bool:
+        """Remove all of the drone's faults, with no LINK_RESTORED. False if no such drone."""
+        with self._locked():
+            drone = self._drones.get(drone_id)
+            if drone is None:
+                return False
+            clear_faults(drone)
+            return True
 
     def add_drone(self, drone: Drone) -> None:
         """Put a bare drone on the board (no jobs), for tests. `spawn` is the real way."""
@@ -479,17 +591,21 @@ class JobsBoard:
             return ids
 
     def remove_drone(self, drone_id: str) -> bool:
-        """Remove a drone and its jobs. False if there was no such drone."""
+        """Remove a drone, its jobs and its waiting delayed replies (so they stop counting
+        toward the namespace cap). False if there was no such drone."""
         with self._locked():
             if self._drones.pop(drone_id, None) is None:
                 return False
             for key in [key for key in self._jobs if key[0] == drone_id]:
                 del self._jobs[key]
+            self._delayed.drop_drone(drone_id)
             return True
 
     def reset(self, namespace: str) -> ResetResult:
-        """Atomically remove every drone and job of `namespace`, reset its id counter and
-        bump its epoch. Other namespaces are untouched. An empty namespace is fine."""
+        """Atomically remove every drone and job of `namespace` (with their faults), drop its
+        waiting delayed replies, reset its id counter and bump its epoch. Other namespaces
+        are untouched. An empty namespace is fine. A drone in LINK_LOSS is simply gone, so
+        no LINK_RESTORED is sent for it."""
         prefix = namespace + "-"
         with self._locked():
             drones = [key for key in self._drones if key.startswith(prefix)]
@@ -499,6 +615,7 @@ class JobsBoard:
             for job_key in jobs:
                 del self._jobs[job_key]
             self._spawned.pop(namespace, None)
+            self._delayed.drop_namespace(namespace)
             epoch = self._epochs.get(namespace, 0) + 1
             self._epochs[namespace] = epoch
             return ResetResult(namespace, len(drones), len(jobs), epoch)

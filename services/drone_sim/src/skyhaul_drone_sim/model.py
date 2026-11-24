@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Final
 from skyhaul_contracts import AlertCode, FlightState, MissionState
 
 if TYPE_CHECKING:
+    from skyhaul_drone_sim.faults import Fault, FaultKind
     from skyhaul_drone_sim.outbox import Outgoing
 
 DEDUP_CACHE_SIZE: Final = 256
@@ -85,6 +86,10 @@ class Drone:
     alerts_latched: set[AlertCode] = field(default_factory=set)
     recent_cmds: OrderedDict[str, list[Outgoing]] = field(default_factory=OrderedDict)
     """Replies to the last DEDUP_CACHE_SIZE commands, by command msg_id."""
+    faults: dict[FaultKind, Fault] = field(default_factory=dict)
+    """Active injected faults, at most one per kind (`faults.py`)."""
+    gps_offset_m: tuple[float, float] = (0.0, 0.0)
+    """(north, east) meters added to the reported position while GPS_DRIFT is active."""
 
     @property
     def airborne(self) -> bool:
@@ -99,7 +104,8 @@ class Drone:
         return self.mission is not None and self.mission.active
 
     def copy(self) -> Drone:
-        """A private copy. Cached replies are immutable, so the cache is copied shallowly."""
+        """A private copy. Cached replies and faults are immutable, so their containers are
+        copied shallowly."""
         rng = random.Random()  # noqa: S311 - simulation, not security
         rng.setstate(self.rng.getstate())
         mission = None if self.mission is None else replace(self.mission)
@@ -109,6 +115,7 @@ class Drone:
             mission=mission,
             alerts_latched=set(self.alerts_latched),
             recent_cmds=OrderedDict(self.recent_cmds),
+            faults=dict(self.faults),
         )
 
     def remember(self, msg_id: str, replies: list[Outgoing]) -> None:

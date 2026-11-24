@@ -100,5 +100,17 @@ def test_world_offers_only_in_memory_job_operations() -> None:
         "add_drone",
         "count_unknown_drone_command",
         "stamp",
+        "can_delay",
+        "delay",
     }
-    assert [type(value) for value in state] == [dict, dict, dict, bool, dict, dict, int]
+    assert [type(value).__name__ for value in state] == [
+        "_DelayedReplies",  # a heap and counters: in memory only
+        "dict",
+        "dict",
+        "dict",
+        "bool",
+        "dict",
+        "list",
+        "dict",
+        "int",
+    ]

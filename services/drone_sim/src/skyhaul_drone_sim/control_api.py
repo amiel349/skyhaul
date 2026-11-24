@@ -19,10 +19,10 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, Final
+from typing import Annotated, Any, Final, Literal
 
 from flask import Flask, Response, g, jsonify, request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from werkzeug.exceptions import HTTPException, MethodNotAllowed
 from werkzeug.serving import BaseWSGIServer, WSGIRequestHandler, make_server
 
@@ -37,6 +37,7 @@ from skyhaul_drone_sim.board import (
 )
 from skyhaul_drone_sim.clock import Clock
 from skyhaul_drone_sim.config import SimConfig
+from skyhaul_drone_sim.faults import Fault, FaultKind, fault_view
 from skyhaul_drone_sim.model import Drone, GeoPoint
 from skyhaul_drone_sim.namespaces import NAMESPACE_PATTERN, is_namespace
 
@@ -83,6 +84,59 @@ class SpawnRequest(_Body):
 
 class ResetRequest(_Body):
     namespace: str = Field(pattern=NAMESPACE_PATTERN)
+
+
+# One body per fault kind (design note section 5), told apart by `kind`. An optional
+# `duration_s` has the LINK_LOSS range.
+type DurationS = Annotated[float, Field(ge=1.0, le=600.0)]
+
+
+class LinkLossRequest(_Body):
+    kind: Literal[FaultKind.LINK_LOSS]
+    duration_s: DurationS
+
+
+class NackNextRequest(_Body):
+    kind: Literal[FaultKind.NACK_NEXT]
+    count: int = Field(ge=1, le=100)
+
+
+class ReplyDelayRequest(_Body):
+    kind: Literal[FaultKind.REPLY_DELAY]
+    delay_s: float = Field(ge=0.1, le=30.0)
+    duration_s: DurationS | None = None
+
+
+class BatteryDrainRequest(_Body):
+    kind: Literal[FaultKind.BATTERY_DRAIN]
+    factor: float = Field(ge=1.0, le=100.0)
+    duration_s: DurationS | None = None
+
+
+class GpsDriftRequest(_Body):
+    kind: Literal[FaultKind.GPS_DRIFT]
+    drift_m: float = Field(ge=1.0, le=500.0)
+    duration_s: DurationS | None = None
+
+
+type FaultRequest = (
+    LinkLossRequest | NackNextRequest | ReplyDelayRequest | BatteryDrainRequest | GpsDriftRequest
+)
+_FAULT_REQUEST: Final[TypeAdapter[FaultRequest]] = TypeAdapter(
+    Annotated[FaultRequest, Field(discriminator="kind")]
+)
+
+
+def fault_from(body: FaultRequest, now: float) -> Fault:
+    duration_s = getattr(body, "duration_s", None)
+    return Fault(
+        kind=body.kind,
+        expires_at=None if duration_s is None else now + duration_s,
+        count=getattr(body, "count", None),
+        delay_s=getattr(body, "delay_s", None),
+        factor=getattr(body, "factor", None),
+        drift_m=getattr(body, "drift_m", None),
+    )
 
 
 class ApiError(Exception):
@@ -181,7 +235,8 @@ def create_app(
         namespace = request.args.get("namespace", "")
         if not is_namespace(namespace):
             raise ApiError(400, "bad_request", "namespace must match ^[a-z0-9]{1,16}$")
-        return jsonify(drones=[drone_summary(d) for d in board.drones(namespace)])
+        now = clock.monotonic()
+        return jsonify(drones=[drone_summary(d, now) for d in board.drones(namespace)])
 
     @app.get("/drones/<drone_id>")
     def get_drone(drone_id: str) -> Response:
@@ -194,6 +249,21 @@ def create_app(
     @app.delete("/drones/<drone_id>")
     def delete_drone(drone_id: str) -> Response:
         if not board.remove_drone(drone_id):
+            raise ApiError(404, "not_found", "no such drone")
+        return Response(status=204)
+
+    @app.post("/drones/<drone_id>/faults")
+    def add_fault(drone_id: str) -> tuple[Response, int]:
+        body = _parse_with(_FAULT_REQUEST)
+        now = clock.monotonic()
+        fault = fault_from(body, now)
+        if not board.add_fault(drone_id, fault):
+            raise ApiError(404, "not_found", "no such drone")
+        return jsonify(fault=fault_view(fault, now)), 201
+
+    @app.delete("/drones/<drone_id>/faults")
+    def clear_faults(drone_id: str) -> Response:
+        if not board.clear_faults(drone_id):
             raise ApiError(404, "not_found", "no such drone")
         return Response(status=204)
 
@@ -242,11 +312,15 @@ def _maker(cfg: SimConfig, *, home: GeoPoint, now: float, battery_pct: float) ->
 
 
 def _parse[T: _Body](model: type[T]) -> T:
+    return _parse_with(TypeAdapter(model))
+
+
+def _parse_with[T](adapter: TypeAdapter[T]) -> T:
     data = request.get_json(silent=True)
     if data is None:
         raise ApiError(400, "bad_request", "the body must be a JSON object")
     try:
-        return model.model_validate(data)
+        return adapter.validate_python(data)
     except ValidationError as exc:
         raise ApiError(400, "bad_request", _describe(exc)) from None
 
@@ -256,7 +330,9 @@ def _describe(exc: ValidationError) -> str:
     parts = []
     for err in exc.errors(include_input=False, include_url=False)[:10]:
         where = ".".join(str(part) for part in err["loc"]) or "body"
-        parts.append(f"{where}: {err['msg']}")
+        # pydantic's message for an unknown tag quotes the tag itself.
+        why = "unknown fault kind" if err["type"] == "union_tag_invalid" else err["msg"]
+        parts.append(f"{where}: {why}")
     return "; ".join(parts)
 
 
@@ -269,7 +345,7 @@ def _error(status: int, error: str, detail: str) -> Response:
 # --- views -----------------------------------------------------------------------------
 
 
-def drone_summary(d: Drone) -> dict[str, Any]:
+def drone_summary(d: Drone, now: float) -> dict[str, Any]:
     """What `GET /drones` shows for each drone."""
     mission = None
     if d.mission is not None:
@@ -286,7 +362,7 @@ def drone_summary(d: Drone) -> dict[str, Any]:
         "pos": {"lat": d.pos.lat, "lon": d.pos.lon, "altitude_m": d.altitude_m},
         "battery_pct": d.battery_pct,
         "mission": mission,
-        "faults": [],  # fault injection arrives with #10
+        "faults": [fault_view(fault, now) for fault in d.faults.values()],
     }
 
 
@@ -301,7 +377,7 @@ def drone_detail(d: Drone, jobs: list[JobView], now: float) -> dict[str, Any]:
             "speed_mps": d.target.speed_mps,
         }
     return {
-        **drone_summary(d),
+        **drone_summary(d, now),
         "target": target,
         "cruise_mps": d.cruise_mps,
         "jobs": [
