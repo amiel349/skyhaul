@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -22,6 +23,7 @@ from typing import Any
 import pika
 import pytest
 from sim_support.command_client import CommandClient
+from sim_support.control_client import ControlClient
 from testcontainers.community.rabbitmq import RabbitMqContainer
 
 # Same tag as deploy/compose.yaml, so tests run against the broker the stack uses.
@@ -113,6 +115,7 @@ def broker() -> Iterator[Broker]:
 class SimProcess:
     process: subprocess.Popen[bytes]
     log_path: Path
+    control: ControlClient
 
     def logs(self) -> list[dict[str, Any]]:
         lines = self.log_path.read_text(errors="replace").splitlines()
@@ -147,6 +150,7 @@ def start_sim(broker: Broker, tmp_path: Path) -> Iterator[StartSim]:
         drones: list[str], *, module: str = "skyhaul_drone_sim", wait_ready: bool = True, **env: str
     ) -> SimProcess:
         log_path = tmp_path / f"sim-{len(started)}.log"
+        token, port = secrets.token_hex(32), free_port()
         environ = {
             "PATH": os.environ.get("PATH", ""),
             "PYTHONPATH": str(TESTS_DIR),
@@ -155,13 +159,15 @@ def start_sim(broker: Broker, tmp_path: Path) -> Iterator[StartSim]:
             "RABBITMQ_USER": broker.user,
             "RABBITMQ_PASSWORD": broker.password,
             "SIM_DRONES": ",".join(drones),
+            "SIM_CONTROL_TOKEN": token,
+            "SIM_CONTROL_PORT": str(port),
             **env,
         }
         log_file = log_path.open("wb")
         process = subprocess.Popen(  # noqa: S603 - our own interpreter and module
             [sys.executable, "-m", module], env=environ, stderr=log_file, stdout=log_file
         )
-        sim = SimProcess(process, log_path)
+        sim = SimProcess(process, log_path, ControlClient(f"http://127.0.0.1:{port}", token))
         started.append(sim)
         if wait_ready:
             sim.wait_logged("consuming commands")
@@ -176,6 +182,14 @@ def start_sim(broker: Broker, tmp_path: Path) -> Iterator[StartSim]:
             except subprocess.TimeoutExpired:
                 sim.process.kill()
                 sim.wait(5)
+
+
+def free_port() -> int:
+    """A port the OS just handed out, for one simulator's control API."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port: int = sock.getsockname()[1]
+        return port
 
 
 @pytest.fixture

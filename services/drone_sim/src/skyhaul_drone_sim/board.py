@@ -25,6 +25,13 @@ Drones live on the board too (`model.Drone`, by id). A job's tick and render get
 drone it belongs to as well as the job: ticks move the drone and drain its battery,
 renders read it. A job may say when it is finished (`done`): it then emits one final
 message and leaves the board, in the same `due()` call.
+
+Namespaces (ADR 0009): every drone id is `<namespace>-dNNN`. The board keeps an id counter
+and an epoch per namespace. `reset(ns)` removes the namespace's drones and jobs (their
+dedup caches live on the drones), resets its counter and bumps its epoch, all under the
+lock. Every message leaving the board is stamped with its namespace's current epoch while
+the lock is held, and the publisher sends it only if `is_current` still holds, so nothing
+produced before a reset is published after it.
 """
 
 import copy
@@ -40,6 +47,7 @@ from pydantic import BaseModel
 from skyhaul_contracts import MessageType, TelemetryType
 
 from skyhaul_drone_sim.model import Drone
+from skyhaul_drone_sim.namespaces import MAX_DRONES_PER_NAMESPACE, namespace_of, nth_drone_id
 from skyhaul_drone_sim.outbox import Outgoing, is_outgoing_list, new_message
 
 MAX_TICK_DT_S = 0.5
@@ -52,6 +60,30 @@ type RenderFn = Callable[[Drone, Job, float], BaseModel]
 type TickFn = Callable[[Drone, Job, float], list[Outgoing]]
 """`tick(drone, job, dt)`: advance the drone by `dt` seconds; returns events (ALERTs)."""
 type DoneFn = Callable[[Drone], bool]
+type MakeDrone = Callable[[str], tuple[Drone, list[Job]]]
+"""`make(drone_id)`: a new drone and its jobs. Runs under the board lock: in memory only."""
+
+
+class SpawnConflict(Exception):
+    """The ids a spawn would create already exist, or the namespace has no ids left."""
+
+
+@dataclass(frozen=True, slots=True)
+class ResetResult:
+    namespace: str
+    drones_removed: int
+    jobs_removed: int
+    epoch: int
+    """The namespace's new epoch."""
+
+
+@dataclass(frozen=True, slots=True)
+class JobView:
+    """A job as the control API shows it."""
+
+    type: JobType
+    period_s: float
+    next_due: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +201,12 @@ def _advance(entry: _Entry, now: float) -> None:
         entry.next_due += period_s
 
 
+def _stamp(epochs: dict[str, int], out: Outgoing) -> Outgoing:
+    """`out` marked with the current epoch of its drone's namespace. Call under the lock."""
+    namespace = namespace_of(out.message.drone_id)
+    return dataclasses.replace(out, namespace=namespace, epoch=epochs.get(namespace, 0))
+
+
 def _to_dict(entry: _Entry) -> dict[str, Any]:
     job = entry.job
     return {
@@ -194,6 +232,7 @@ class World:
 
     __slots__ = (
         "_drones",
+        "_epochs",
         "_jobs",
         "_open",
         "_staged",
@@ -201,9 +240,12 @@ class World:
         "_unknown_drone_commands",
     )
 
-    def __init__(self, jobs: dict[JobKey, _Entry], drones: dict[str, Drone]) -> None:
+    def __init__(
+        self, jobs: dict[JobKey, _Entry], drones: dict[str, Drone], epochs: dict[str, int]
+    ) -> None:
         self._jobs = jobs
         self._drones = drones
+        self._epochs = epochs
         self._open = True
         self._staged: dict[JobKey, Job | None] = {}
         self._staged_drones: dict[str, Drone] = {}
@@ -261,6 +303,12 @@ class World:
         self._staged[(drone_id, type)] = None
         return existed
 
+    def stamp(self, messages: list[Outgoing]) -> list[Outgoing]:
+        """The messages marked with their namespace's current epoch (ADR 0009). The
+        consumer stamps a dispatch's replies before the transaction ends."""
+        self._check_open()
+        return [_stamp(self._epochs, out) for out in messages]
+
     def discard(self) -> None:
         """Drop every change staged in this transaction so far."""
         self._check_open()
@@ -294,6 +342,10 @@ class JobsBoard:
         self._jobs: dict[JobKey, _Entry] = {}
         self._drones: dict[str, Drone] = {}
         self._unknown_drone_commands = 0
+        self._epochs: dict[str, int] = {}
+        """Per namespace; a namespace never reset is at epoch 0."""
+        self._spawned: dict[str, int] = {}
+        """Per namespace: how many ids `spawn` has handed out since the last reset."""
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -334,7 +386,7 @@ class JobsBoard:
         dropped when it raises.
         """
         with self._locked():
-            world = World(self._jobs, self._drones)
+            world = World(self._jobs, self._drones, self._epochs)
             try:
                 yield world
                 world._commit()
@@ -394,13 +446,94 @@ class JobsBoard:
                     _advance(entry, now)
             for key in finished:
                 del self._jobs[key]
+            messages = [_stamp(self._epochs, out) for out in messages]
         return DueResult(messages, errors)
 
     def add_drone(self, drone: Drone) -> None:
-        """Put a drone on the board, so commands for it reach their handler. Stand-in for
-        #9's spawn, which also creates its jobs in the same transaction."""
+        """Put a bare drone on the board (no jobs), for tests. `spawn` is the real way."""
         with self._locked():
             self._drones[drone.drone_id] = drone.copy()
+
+    def spawn(self, namespace: str, count: int, make: MakeDrone) -> list[str]:
+        """Create the namespace's next `count` drones and their jobs, all or nothing.
+
+        Ids continue from the namespace's counter (`<ns>-d001` after a reset). Raises
+        SpawnConflict, changing nothing, if one of them already exists (a drone seeded at
+        startup) or the namespace would pass MAX_DRONES_PER_NAMESPACE ids.
+        """
+        if count < 1:
+            raise ValueError("count must be at least 1")
+        with self._locked():
+            first = self._spawned.get(namespace, 0) + 1
+            if first + count - 1 > MAX_DRONES_PER_NAMESPACE:
+                raise SpawnConflict(f"namespace {namespace} has no free drone ids left")
+            ids = [nth_drone_id(namespace, index) for index in range(first, first + count)]
+            if any(new_id in self._drones for new_id in ids):
+                raise SpawnConflict("drone ids already exist")
+            built = [make(new_id) for new_id in ids]
+            for drone, jobs in built:
+                self._drones[drone.drone_id] = drone
+                for job in jobs:
+                    _upsert(self._jobs, _copy_job(job))
+            self._spawned[namespace] = first + count - 1
+            return ids
+
+    def remove_drone(self, drone_id: str) -> bool:
+        """Remove a drone and its jobs. False if there was no such drone."""
+        with self._locked():
+            if self._drones.pop(drone_id, None) is None:
+                return False
+            for key in [key for key in self._jobs if key[0] == drone_id]:
+                del self._jobs[key]
+            return True
+
+    def reset(self, namespace: str) -> ResetResult:
+        """Atomically remove every drone and job of `namespace`, reset its id counter and
+        bump its epoch. Other namespaces are untouched. An empty namespace is fine."""
+        prefix = namespace + "-"
+        with self._locked():
+            drones = [key for key in self._drones if key.startswith(prefix)]
+            jobs = [key for key in self._jobs if key[0].startswith(prefix)]
+            for drone_key in drones:
+                del self._drones[drone_key]
+            for job_key in jobs:
+                del self._jobs[job_key]
+            self._spawned.pop(namespace, None)
+            epoch = self._epochs.get(namespace, 0) + 1
+            self._epochs[namespace] = epoch
+            return ResetResult(namespace, len(drones), len(jobs), epoch)
+
+    def is_current(self, namespace: str, epoch: int) -> bool:
+        """True if `epoch` is still the namespace's epoch (no reset since it was stamped)."""
+        with self._locked():
+            return self._epochs.get(namespace, 0) == epoch
+
+    def stamp(self, out: Outgoing) -> Outgoing:
+        """`out` marked with its namespace's current epoch, for messages made off the board
+        (the consumer's NACKs for commands it could not decode)."""
+        with self._locked():
+            return _stamp(self._epochs, out)
+
+    def drones(self, namespace: str) -> list[Drone]:
+        """Copies of the namespace's drones, by id."""
+        prefix = namespace + "-"
+        with self._locked():
+            return [
+                self._drones[key].copy() for key in sorted(self._drones) if key.startswith(prefix)
+            ]
+
+    def drone_with_jobs(self, drone_id: str) -> tuple[Drone, list[JobView]] | None:
+        """A copy of the drone and its jobs, or None."""
+        with self._locked():
+            live = self._drones.get(drone_id)
+            if live is None:
+                return None
+            jobs = [
+                JobView(entry.job.type, entry.job.period_s, entry.next_due)
+                for key, entry in self._jobs.items()
+                if key[0] == drone_id
+            ]
+            return live.copy(), jobs
 
     def drone(self, drone_id: str) -> Drone | None:
         """A copy of the drone's current state, or None."""

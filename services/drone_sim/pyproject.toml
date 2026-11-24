@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Skyhaul drone simulator"
 requires-python = ">=3.12"
 dependencies = [
+    "flask>=3.1",
     "pika>=1.4.4,<2",
     "pydantic>=2.14.3,<3",
     "skyhaul-contracts",

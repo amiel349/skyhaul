@@ -1,8 +1,7 @@
-"""A new GOTO against the movement tick, and a constant thread count however many drones."""
+"""A new GOTO against the movement tick, and exactly four threads however many drones."""
 
 from __future__ import annotations
 
-import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -10,18 +9,16 @@ from itertools import pairwise
 
 import pytest
 from sim_support.drones import spawned_board
-from sim_support.fakes import FakeBroker, FakeConnection
 from sim_support.flight import goto, offset_point
 from sim_support.messages import DRONE, command
+from sim_support.running import running_simulator
 from skyhaul_contracts import FlightState, MessageType
 from skyhaul_contracts.v1 import TakeoffPayload
 from skyhaul_drone_sim import behaviors
 from skyhaul_drone_sim.board import Job, JobsBoard
-from skyhaul_drone_sim.config import SimConfig
 from skyhaul_drone_sim.handlers import registry
 from skyhaul_drone_sim.model import Drone, GeoPoint
 from skyhaul_drone_sim.outbox import Outgoing
-from skyhaul_drone_sim.simulator import EXIT_OK, Simulator
 
 NORTH = offset_point(north_m=2000.0)  # target A
 SOUTH = offset_point(north_m=-2000.0)  # target B
@@ -103,48 +100,34 @@ def wait_for_steps(steps: list[Step], count: int, timeout_s: float = 10.0) -> No
 
 
 def count_threads_while_running(drone_count: int) -> tuple[int, set[str]]:
-    drones = tuple(f"main-d{n:03}" for n in range(1, drone_count + 1))
-    cfg = SimConfig(
-        rabbitmq_host="unused",
-        rabbitmq_user="unused",
-        rabbitmq_password=secrets.token_hex(8),
-        drones=drones,
-    )
-    consumers, publishers = FakeBroker(), FakeBroker()
-    sim = Simulator(
-        cfg,
-        registry=registry,
-        consumer_connect=consumers.connect,
-        publisher_connect=publishers.connect,
-    )
-    seen: list[tuple[int, set[str]]] = []
-    deadline = time.monotonic() + 10.0
-
-    def prepare(connection: FakeConnection) -> None:
-        def poll() -> None:
-            # Stands in for the broker's poll wait. Counts once every drone has sent
-            # telemetry, so every drone's jobs are running on the board.
-            sim.stop_event.wait(0.01)
-            if sim.publisher.published >= drone_count:
-                threads = threading.enumerate()
-                seen.append((len(threads), {t.name for t in threads}))
-                sim.stop()
+    """Spawn `drone_count` drones through the control API, wait until each has sent
+    telemetry, then count the threads."""
+    with running_simulator() as running:
+        left = drone_count
+        while left:
+            running.client.spawn("main", min(left, 100))
+            left -= min(left, 100)
+        deadline = time.monotonic() + 10.0
+        while running.sim.publisher.stats().published < drone_count:
             assert time.monotonic() < deadline, "the drones never sent telemetry"
-
-        connection.on_poll = poll
-
-    consumers.prepare = prepare
-    assert sim.run() == EXIT_OK
-    return seen[0]
+            time.sleep(0.01)
+        assert running.sim.board.drone_count() == drone_count
+        threads = threading.enumerate()
+        return len(threads), {t.name for t in threads}
 
 
-def test_1_and_200_drones_run_on_the_same_three_core_threads() -> None:
-    before = len(threading.enumerate())
+def test_running_simulator_has_exactly_four_threads_with_1_and_with_200_drones() -> None:
+    before = threading.enumerate()
 
     one = count_threads_while_running(1)
     many = count_threads_while_running(200)
 
     assert one == many
     count, names = many
-    assert count == before + 2  # the calling thread is the consumer
-    assert {"scheduler", "publisher"} <= names
+    assert count == len(before) + 4  # consumer, scheduler, publisher, control-http
+    assert names == {t.name for t in before} | {
+        "consumer",
+        "scheduler",
+        "publisher",
+        "control-http",
+    }

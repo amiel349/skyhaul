@@ -10,6 +10,10 @@ The reaction to each kind of bad message follows design note section 3:
   otherwise dead-letter;
 - unknown type, invalid payload, a raising handler: NACK, then ack (never redelivered);
 - unknown drone: no reply, counted, acked.
+
+Every reply is stamped with its namespace's epoch under the board lock (inside the
+dispatch transaction, or with `JobsBoard.stamp` for a NACK made before dispatch), so a
+reply produced before a reset of its namespace is never published (ADR 0009).
 """
 
 import logging
@@ -91,7 +95,12 @@ class Consumer:
         self._prefetch = prefetch
         self._debug_tap = debug_tap
         self.connected = threading.Event()
-        """Set once the consumer is registered on the command queue (for tests)."""
+        """Set while the consumer is registered on the command queue (tests, `/healthz`)."""
+        self._thread: threading.Thread | None = None
+
+    def is_alive(self) -> bool:
+        """True while `run()` is running on a live thread."""
+        return self._thread is not None and self._thread.is_alive()
 
     # -- the consume loop --------------------------------------------------------------
 
@@ -100,6 +109,13 @@ class Consumer:
 
         Raises BrokerUnavailable when RabbitMQ cannot be reached within the bound.
         """
+        self._thread = threading.current_thread()
+        try:
+            self._run()
+        finally:
+            self._thread = None
+
+    def _run(self) -> None:
         while not self._stop.is_set():
             connection = self._connect(self._connect_timeout_s, self._stop)
             try:
@@ -181,17 +197,15 @@ class Consumer:
                     "drone_id": envelope.drone_id,
                 },
             )
-            return Outcome(
-                [
-                    nack(
-                        drone_id=envelope.drone_id,
-                        correlation_id=envelope.correlation_id,
-                        command_msg_id=envelope.msg_id,
-                        command_type=envelope.type,
-                        reason=reason,
-                        detail=exc.detail,
-                    )
-                ]
+            return self._reply(
+                nack(
+                    drone_id=envelope.drone_id,
+                    correlation_id=envelope.correlation_id,
+                    command_msg_id=envelope.msg_id,
+                    command_type=envelope.type,
+                    reason=reason,
+                    detail=exc.detail,
+                )
             )
         if (command.drone_id, command.type.value) != (key_id, key_type):
             return _dead_letter("routing key does not match the envelope", routing_key)
@@ -215,23 +229,25 @@ class Consumer:
                 "drone_id": hint.drone_id,
             },
         )
-        return Outcome(
-            [
-                nack(
-                    drone_id=hint.drone_id,
-                    correlation_id=hint.correlation_id,
-                    command_msg_id=hint.msg_id,
-                    command_type=hint.type or "",
-                    reason=NackReason.UNSUPPORTED_VERSION,
-                    detail=exc.detail,
-                )
-            ]
+        return self._reply(
+            nack(
+                drone_id=hint.drone_id,
+                correlation_id=hint.correlation_id,
+                command_msg_id=hint.msg_id,
+                command_type=hint.type or "",
+                reason=NackReason.UNSUPPORTED_VERSION,
+                detail=exc.detail,
+            )
         )
+
+    def _reply(self, reply: Outgoing) -> Outcome:
+        return Outcome([self._board.stamp(reply)])
 
     def _dispatch(self, command: Message[Any]) -> Outcome:
         now = self._clock.monotonic()
         with self._board.transaction() as world:
             result = self._registry.dispatch(world, command, now)
+            replies = world.stamp(result.replies)
         # Everything below runs after the board lock is released.
         context = {
             "correlation_id": command.correlation_id,
@@ -252,7 +268,7 @@ class Consumer:
             log.info("duplicate command, cached reply sent again", extra=context)
         else:
             log.info("command handled", extra=context)
-        return Outcome(result.replies)
+        return Outcome(replies)
 
 
 def _dead_letter(

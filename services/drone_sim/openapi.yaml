@@ -1,0 +1,364 @@
+openapi: 3.1.0
+info:
+  title: Skyhaul drone simulator control API
+  version: 1.0.0
+  description: |
+    Test-only API of the drone simulator (ADR 0004 as amended, ADR 0009). It runs only in
+    the compose `test` profile, published on 127.0.0.1:8100. Every route except
+    `/healthz` needs `Authorization: Bearer <SIM_CONTROL_TOKEN>`; a missing or wrong token
+    gets 401 on any path, before routing, so it reveals nothing about drones or namespaces.
+
+    Namespaces match `^[a-z0-9]{1,16}$`; drone ids are `<namespace>-dNNN`. All `/stats`
+    counters are cumulative since the process started and are not cleared by `/reset`.
+
+    The server is single-threaded: requests are handled one at a time.
+servers:
+  - url: http://127.0.0.1:8100
+security:
+  - bearer: []
+
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness of the consumer, scheduler and publisher and both broker connections
+      security: []
+      responses:
+        "200":
+          description: Everything is running
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { const: ok }
+        "503":
+          description: A thread or a connection is down (no other detail)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { const: degraded }
+
+  /drones:
+    post:
+      operationId: spawnDrones
+      summary: Spawn the namespace's next drones
+      description: |
+        Ids continue from the namespace's counter (`<ns>-d001` after a reset), all or
+        nothing. 409 if one of them already exists (a drone seeded at startup) or the
+        namespace would pass 999 ids before its next reset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpawnRequest" }
+      responses:
+        "201":
+          description: The new drones; they start sending HEARTBEAT and BATTERY
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpawnResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+    get:
+      operationId: listDrones
+      summary: The namespace's drones
+      parameters:
+        - name: namespace
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Namespace" }
+      responses:
+        "200":
+          description: The drones of that namespace only, by id
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [drones]
+                properties:
+                  drones:
+                    type: array
+                    items: { $ref: "#/components/schemas/DroneSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /drones/{drone_id}:
+    parameters:
+      - name: drone_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    get:
+      operationId: getDrone
+      summary: One drone's state and jobs
+      responses:
+        "200":
+          description: The drone
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DroneDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteDrone
+      summary: Remove a drone and its jobs; it stops sending telemetry
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /reset:
+    post:
+      operationId: resetNamespace
+      summary: Remove the namespace's drones, jobs and dedup caches and bump its epoch
+      description: |
+        Atomic. Resets the namespace's id counter, so the next spawn starts at d001.
+        Nothing produced for the namespace before the reset is published after it returns.
+        Resetting an empty namespace succeeds. There is no wildcard.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetRequest" }
+      responses:
+        "200":
+          description: What was removed and the namespace's new epoch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+
+  /stats:
+    get:
+      operationId: getStats
+      summary: Simulator counters, cumulative since start
+      responses:
+        "200":
+          description: The counters
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stats" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+
+  responses:
+    BadRequest:
+      description: The body or a parameter is invalid
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or wrong bearer token
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such drone
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The drone ids already exist, or the namespace has no ids left
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: The body is over 16 KiB
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Namespace:
+      type: string
+      pattern: "^[a-z0-9]{1,16}$"
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, detail]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+
+    SpawnRequest:
+      type: object
+      additionalProperties: false
+      required: [namespace, count]
+      properties:
+        namespace: { $ref: "#/components/schemas/Namespace" }
+        count: { type: integer, minimum: 1, maximum: 100 }
+        home:
+          description: Where the drones spawn; the configured home when absent or null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [lat, lon]
+              properties:
+                lat: { type: number, minimum: -80, maximum: 80 }
+                lon: { type: number, minimum: -179, maximum: 179 }
+            - type: "null"
+        battery_pct: { type: number, minimum: 0, maximum: 100, default: 100 }
+
+    SpawnResponse:
+      type: object
+      additionalProperties: false
+      required: [drones]
+      properties:
+        drones:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [drone_id]
+            properties:
+              drone_id: { type: string }
+
+    ResetRequest:
+      type: object
+      additionalProperties: false
+      required: [namespace]
+      properties:
+        namespace: { $ref: "#/components/schemas/Namespace" }
+
+    ResetResponse:
+      type: object
+      additionalProperties: false
+      required: [namespace, drones_removed, jobs_removed, epoch]
+      properties:
+        namespace: { type: string }
+        drones_removed: { type: integer, minimum: 0 }
+        jobs_removed: { type: integer, minimum: 0 }
+        epoch: { type: integer, minimum: 1 }
+
+    FlightState:
+      type: string
+      enum: [LANDED, ARMED, TAKING_OFF, HOVERING, FLYING, RETURNING, LANDING]
+
+    Position:
+      type: object
+      additionalProperties: false
+      required: [lat, lon, altitude_m]
+      properties:
+        lat: { type: number }
+        lon: { type: number }
+        altitude_m: { type: number }
+
+    Mission:
+      type: object
+      additionalProperties: false
+      required: [mission_id, state, waypoint_index, waypoints_total]
+      properties:
+        mission_id: { type: string }
+        state: { type: string, enum: [ACTIVE, COMPLETED, ABORTED] }
+        waypoint_index: { type: integer, minimum: 0 }
+        waypoints_total: { type: integer, minimum: 1 }
+
+    DroneSummary:
+      type: object
+      additionalProperties: false
+      required: [drone_id, state, armed, pos, battery_pct, mission, faults]
+      properties:
+        drone_id: { type: string }
+        state: { $ref: "#/components/schemas/FlightState" }
+        armed: { type: boolean }
+        pos: { $ref: "#/components/schemas/Position" }
+        battery_pct: { type: number, minimum: 0, maximum: 100 }
+        mission:
+          oneOf:
+            - $ref: "#/components/schemas/Mission"
+            - type: "null"
+        faults:
+          description: Active faults (fault injection adds their shape)
+          type: array
+          items: { type: object }
+
+    DroneDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [drone_id, state, armed, pos, battery_pct, mission, faults, target, cruise_mps, jobs]
+      properties:
+        drone_id: { type: string }
+        state: { $ref: "#/components/schemas/FlightState" }
+        armed: { type: boolean }
+        pos: { $ref: "#/components/schemas/Position" }
+        battery_pct: { type: number, minimum: 0, maximum: 100 }
+        mission:
+          oneOf:
+            - $ref: "#/components/schemas/Mission"
+            - type: "null"
+        faults:
+          type: array
+          items: { type: object }
+        target:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [lat, lon, altitude_m, speed_mps]
+              properties:
+                lat: { type: number }
+                lon: { type: number }
+                altitude_m: { type: number }
+                speed_mps: { type: [number, "null"] }
+            - type: "null"
+        cruise_mps: { type: number }
+        jobs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [type, period_s, next_due_in_s]
+            properties:
+              type:
+                type: string
+                enum: [HEARTBEAT, BATTERY, POSITION, MISSION_STATUS]
+              period_s: { type: number, exclusiveMinimum: 0 }
+              next_due_in_s: { type: number }
+
+    Counts:
+      type: object
+      additionalProperties: { type: integer, minimum: 0 }
+
+    Stats:
+      type: object
+      additionalProperties: false
+      required:
+        - outbox_depth
+        - published
+        - dropped_stale
+        - encode_errors
+        - unknown_drone_commands
+        - nacks_by_reason
+        - codec_rejects
+      properties:
+        outbox_depth: { type: integer, minimum: 0 }
+        published: { type: integer, minimum: 0 }
+        dropped_stale:
+          description: Messages dropped because their namespace was reset after they were made
+          type: integer
+          minimum: 0
+        encode_errors: { type: integer, minimum: 0 }
+        unknown_drone_commands: { type: integer, minimum: 0 }
+        nacks_by_reason: { $ref: "#/components/schemas/Counts" }
+        codec_rejects: { $ref: "#/components/schemas/Counts" }

@@ -1,22 +1,16 @@
-"""The wired simulator on fake connections: exactly three core threads, only the publisher
+"""The wired simulator on fake connections: exactly four threads, only the publisher
 publishes, and the stop event shuts everything down."""
 
-import secrets
 import threading
 
+from sim_support.config import sim_config
 from sim_support.fakes import FakeBroker, FakeConnection
 from sim_support.messages import DRONE, command
 from skyhaul_contracts import Codec, MessageType
-from skyhaul_drone_sim.config import SimConfig
 from skyhaul_drone_sim.handlers import registry
 from skyhaul_drone_sim.simulator import EXIT_BROKER_UNAVAILABLE, EXIT_OK, Simulator
 
-CFG = SimConfig(
-    rabbitmq_host="unused",
-    rabbitmq_user="unused",
-    rabbitmq_password=secrets.token_hex(8),
-    drones=(DRONE,),
-)
+CFG = sim_config(drones=(DRONE,))
 
 
 def encoded_arm() -> tuple[str, bytes]:
@@ -28,7 +22,7 @@ def encoded_set_speed() -> tuple[str, bytes]:
     return f"drone.{DRONE}.SET_SPEED", Codec().encode(command("SET_SPEED"))
 
 
-def test_running_simulator_has_exactly_the_three_core_threads() -> None:
+def test_running_simulator_has_exactly_four_threads() -> None:
     consumers, publishers = FakeBroker(), FakeBroker()
     sim = Simulator(
         CFG,
@@ -56,8 +50,8 @@ def test_running_simulator_has_exactly_the_three_core_threads() -> None:
         me.name = name
 
     (during,) = seen
-    assert during == before_names | {"scheduler", "publisher"}
-    assert len(during) == len(before) + 2  # the calling thread is the consumer
+    assert during == before_names | {"scheduler", "publisher", "control-http"}
+    assert len(during) == len(before) + 3  # the calling thread is the consumer
     assert set(threading.enumerate()) == before
 
 

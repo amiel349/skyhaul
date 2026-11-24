@@ -1,5 +1,6 @@
 """The real handler registry, the environment config and the bounded broker retry."""
 
+import secrets
 import threading
 
 import pytest
@@ -11,7 +12,12 @@ from skyhaul_drone_sim.amqp import BrokerUnavailable, connect_with_retry
 from skyhaul_drone_sim.config import ConfigError, SimConfig
 from skyhaul_drone_sim.handlers import registry
 
-ENV = {"RABBITMQ_HOST": "rabbitmq", "RABBITMQ_USER": "sim", "RABBITMQ_PASSWORD": "pw"}
+ENV = {
+    "RABBITMQ_HOST": "rabbitmq",
+    "RABBITMQ_USER": "sim",
+    "RABBITMQ_PASSWORD": "pw",
+    "SIM_CONTROL_TOKEN": secrets.token_hex(32),
+}
 
 
 def test_every_command_type_has_a_handler() -> None:
@@ -45,7 +51,9 @@ def test_config_from_env_uses_defaults_for_everything_but_secrets() -> None:
     assert "pw" not in repr(cfg)
 
 
-@pytest.mark.parametrize("missing", ["RABBITMQ_HOST", "RABBITMQ_USER", "RABBITMQ_PASSWORD"])
+@pytest.mark.parametrize(
+    "missing", ["RABBITMQ_HOST", "RABBITMQ_USER", "RABBITMQ_PASSWORD", "SIM_CONTROL_TOKEN"]
+)
 def test_missing_required_variable_fails_fast_naming_it(missing: str) -> None:
     env = {k: v for k, v in ENV.items() if k != missing}
 
@@ -63,6 +71,9 @@ def test_missing_required_variable_fails_fast_naming_it(missing: str) -> None:
         ("SIM_DRAIN_S", "9"),
         ("SIM_DEBUG_TAP", "maybe"),
         ("SIM_DRONES", "Main.D1"),
+        ("SIM_DRONES", "main-d1"),
+        ("SIM_DRONES", "main-d000"),
+        ("SIM_CONTROL_PORT", "0"),
     ],
 )
 def test_invalid_values_fail_fast_without_echoing_them(name: str, value: str) -> None:
@@ -107,7 +118,7 @@ def test_stop_while_retrying_gives_up_at_once() -> None:
 
 
 def test_sim_drones_is_bounded_to_1000_ids() -> None:
-    ids = ",".join(f"main-d{n:04d}" for n in range(1001))
+    ids = ",".join(f"n{n}-d001" for n in range(1001))
 
     with pytest.raises(ConfigError, match="SIM_DRONES must list at most 1000 drones"):
         SimConfig.from_env({**ENV, "SIM_DRONES": ids})

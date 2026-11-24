@@ -14,9 +14,10 @@ RUN useradd --create-home --uid 10001 app
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 USER app
-# Until the control API (#9) serves /healthz, healthy means the simulator process (PID 1)
-# is alive: it exits on its own when RabbitMQ stays unreachable.
+# The control API's /healthz: 200 only while every thread and both connections are up.
+# SIM_CONTROL_TOKEN is never set here or passed as a build arg; it comes from the runtime env.
+EXPOSE 8100
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-  CMD ["python", "-c", "import os; os.kill(1, 0)"]
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2)"]
 # Exec form, so SIGTERM reaches the simulator as PID 1.
 CMD ["skyhaul-drone-sim"]

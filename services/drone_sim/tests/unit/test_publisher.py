@@ -7,6 +7,7 @@ import time
 
 import pytest
 from pika.exceptions import ConnectionClosedByBroker, StreamLostError
+from sim_support.config import always_current
 from sim_support.fakes import FakeBroker, FakeConnection
 from sim_support.messages import DRONE, command, outgoing
 from skyhaul_contracts import Codec
@@ -24,6 +25,7 @@ def make_publisher(
         codec=Codec(),
         outbox=outbox,
         stop=stop,
+        is_current=always_current,
         connect=broker.connect,
         connect_timeout_s=1.0,
         drain_s=drain_s,
@@ -150,6 +152,7 @@ def test_unencodable_message_is_dropped_and_counted_and_the_next_one_still_goes(
         codec=codec,
         outbox=outbox,
         stop=stop,
+        is_current=always_current,
         connect=broker.connect,
         connect_timeout_s=1.0,
         drain_s=5.0,
@@ -223,6 +226,7 @@ def test_publisher_that_cannot_connect_reports_failure() -> None:
         codec=Codec(),
         outbox=new_outbox(1),
         stop=threading.Event(),
+        is_current=always_current,
         connect=refuse,
         connect_timeout_s=0.1,
         drain_s=1.0,

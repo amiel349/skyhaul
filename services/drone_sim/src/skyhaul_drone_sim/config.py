@@ -1,7 +1,8 @@
 """Simulator configuration, from environment variables only.
 
-Secrets (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`) have no defaults: a missing one stops the
-process at startup with a clear error. The control API settings arrive with #9.
+Secrets (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `SIM_CONTROL_TOKEN`) have no defaults: a
+missing one stops the process at startup with a clear error. The control API token must be
+at least 32 characters.
 """
 
 from __future__ import annotations
@@ -12,11 +13,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Final
 
-from skyhaul_contracts.topology import DRONE_ID_RE
+from skyhaul_drone_sim.namespaces import is_drone_id
 
 _TRUE: Final = frozenset({"1", "true", "yes"})
 _FALSE: Final = frozenset({"0", "false", "no", ""})
 _SPLIT: Final = re.compile(r"[,\s]+")
+
+MIN_CONTROL_TOKEN_CHARS: Final = 32
 
 
 class ConfigError(ValueError):
@@ -29,6 +32,12 @@ class SimConfig:
     rabbitmq_host: str
     rabbitmq_user: str
     rabbitmq_password: str = field(repr=False)
+    control_token: str = field(repr=False)
+    """`Authorization: Bearer <token>` for every control API route but `/healthz`."""
+    control_host: str = "127.0.0.1"
+    """The control API's bind address. The container sets 0.0.0.0 inside its own network
+    namespace; compose publishes the port on the host's 127.0.0.1 only."""
+    control_port: int = 8100
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "/"
     rabbitmq_heartbeat_s: int = 30
@@ -42,13 +51,20 @@ class SimConfig:
     """How long the publisher drains the outbox on shutdown before dropping the rest."""
     debug_tap: bool = False
     drones: tuple[str, ...] = ()
-    """PLACEHOLDER until #9's spawn: drone ids that exist from startup (`SIM_DRONES`)."""
+    """Optional startup seed (`SIM_DRONES`): `<ns>-dNNN` ids that exist from startup, for
+    demos and the subprocess integration tests. Tests normally spawn with `POST /drones`."""
     seed: int = 0
     """Seeds each drone's own RNG (with its id), so runs repeat (`SIM_SEED`)."""
     geofence_radius_m: float = 5000.0
     home_lat: float = 32.0
     home_lon: float = 34.8
     """Where drones spawn (`SIM_HOME_LAT`, `SIM_HOME_LON`), the centre of their geofence."""
+
+    def __post_init__(self) -> None:
+        if len(self.control_token) < MIN_CONTROL_TOKEN_CHARS:
+            raise ConfigError(
+                f"SIM_CONTROL_TOKEN must be at least {MIN_CONTROL_TOKEN_CHARS} characters"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> SimConfig:
@@ -57,6 +73,9 @@ class SimConfig:
             rabbitmq_host=_required(env, "RABBITMQ_HOST"),
             rabbitmq_user=_required(env, "RABBITMQ_USER"),
             rabbitmq_password=_required(env, "RABBITMQ_PASSWORD"),
+            control_token=_required(env, "SIM_CONTROL_TOKEN"),
+            control_host=env.get("SIM_CONTROL_HOST", "") or "127.0.0.1",
+            control_port=_int(env, "SIM_CONTROL_PORT", 8100, low=1, high=65535),
             rabbitmq_port=_int(env, "RABBITMQ_PORT", 5672, low=1, high=65535),
             rabbitmq_vhost=env.get("RABBITMQ_VHOST", "/") or "/",
             rabbitmq_heartbeat_s=_int(env, "RABBITMQ_HEARTBEAT_S", 30, low=1, high=600),
@@ -125,8 +144,8 @@ def _bool(env: Mapping[str, str], name: str) -> bool:
 
 def _drones(env: Mapping[str, str], name: str) -> tuple[str, ...]:
     ids = tuple(part for part in _SPLIT.split(env.get(name, "")) if part)
-    if not all(DRONE_ID_RE.fullmatch(drone_id) for drone_id in ids):
-        raise ConfigError(f"{name} must list valid drone ids")
+    if not all(is_drone_id(drone_id) for drone_id in ids):
+        raise ConfigError(f"{name} must list drone ids like main-d001 (<namespace>-dNNN)")
     unique = tuple(dict.fromkeys(ids))
     if len(unique) > MAX_STARTUP_DRONES:
         raise ConfigError(f"{name} must list at most {MAX_STARTUP_DRONES} drones")
