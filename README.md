@@ -39,6 +39,17 @@ make up      # local stack on 127.0.0.1
 make check   # lint, types, tests, secret scan
 ```
 
+## Use the simulator from Claude Code
+
+The repo's `.mcp.json` registers the `skyhaul-sim` MCP server (`services/mcp_sim/`, stdio). It holds only `${VAR}` references; the server reads its secrets from the environment Claude Code starts in, and never reads `.env`.
+
+1. `make env` once, then `make sim` (RabbitMQ and the simulator with its control API on 127.0.0.1:8100). Add `SIM_DEBUG_TAP=1` to `.env` to also watch telemetry in the RabbitMQ management UI (queue `debug.telemetry`).
+2. Export `SIM_CONTROL_TOKEN`, `RABBITMQ_USER` and `RABBITMQ_PASSWORD` in the shell you start `claude` from. With [direnv](https://direnv.net/): an `.envrc` holding the single line `dotenv` (it is git-ignored), then `direnv allow`. That exports every variable in `.env` to that directory's shells. Optional: `SIM_CONTROL_URL`, `RABBITMQ_HOST`, `RABBITMQ_PORT` (defaults `http://127.0.0.1:8100`, `127.0.0.1`, `5672`).
+3. Start `claude` in the repo, approve the project server, and check `/mcp` lists `skyhaul-sim`. Without the variables the server still starts, and every tool answers "not configured: set ...".
+4. Try: *"Spawn 5 drones in dev. ARM dev-d001, take it off to 20 m, send it with GOTO to 32.001, 34.8 at 20 m, then read its POSITION telemetry for 10 seconds."*
+
+Tools: `spawn_drones`, `list_drones`, `get_drone`, `inject_fault`, `clear_faults`, `reset_namespace` (control API), and `send_command`, `read_telemetry` (RabbitMQ, through the Codec, like a ground station). See ADR 0007.
+
 ## Roadmap
 
 | Milestone | Scope |
