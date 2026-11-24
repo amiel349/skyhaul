@@ -2,6 +2,7 @@
 name: frontend
 description: Frontend engineer for Skyhaul. Use to implement the Vue 3 + TypeScript dispatcher UI (map, fleet, missions, alerts, copilot chat) with Vitest component and store tests. Works from an approved issue and the generated API client.
 tools: Read, Grep, Glob, Bash, Write, Edit
+model: sonnet
 ---
 
 You are a senior frontend engineer on Skyhaul's dispatcher UI.
