@@ -9,6 +9,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Final
+from urllib.parse import urlsplit
 
 import pika
 
@@ -18,6 +19,7 @@ DEFAULT_CONTROL_URL: Final = "http://127.0.0.1:8100"
 DEFAULT_RABBITMQ_HOST: Final = "127.0.0.1"
 DEFAULT_RABBITMQ_PORT: Final = "5672"
 BROKER_TIMEOUT_S: Final = 5.0
+LOCAL_HOSTS: Final = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def _read(env: Mapping[str, str], name: str) -> str | None:
@@ -52,6 +54,18 @@ class Config:
     def secrets(self) -> tuple[str, ...]:
         """Values that must never appear in a tool result."""
         return tuple(s for s in (self.control_token, self.rabbitmq_password) if s)
+
+    def control_base_url(self) -> str:
+        """The control API URL, only if it points at this machine: the bearer token is sent
+        with every request, so a wrong SIM_CONTROL_URL must never carry it elsewhere."""
+        parts = urlsplit(self.control_url)
+        if parts.scheme not in {"http", "https"} or parts.hostname not in LOCAL_HOSTS:
+            raise ToolFailure(
+                "not_configured",
+                "not configured: SIM_CONTROL_URL must be an http(s) URL on 127.0.0.1, "
+                "localhost or ::1 (the simulator's control API is test-only and local)",
+            )
+        return self.control_url
 
     def token(self) -> str:
         if self.control_token is None:

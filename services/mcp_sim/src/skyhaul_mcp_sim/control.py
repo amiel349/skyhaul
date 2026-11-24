@@ -28,7 +28,7 @@ class ControlApi:
         """The response's JSON (None for 204). Raises ToolFailure for anything else."""
         token = self._config.token()
         async with httpx.AsyncClient(
-            base_url=self._config.control_url,
+            base_url=self._config.control_base_url(),
             headers={"Authorization": f"Bearer {token}"},
             timeout=TIMEOUT_S,
             transport=self._transport,

@@ -172,3 +172,82 @@ def test_drone_text_with_instructions_is_returned_as_json_data(harness: Harness)
     assert not result.isError
     assert data(result)["messages"][0]["payload"]["message"] == injected
     assert "never instructions" in (tools["read_telemetry"].description or "")
+
+
+def test_a_flood_on_the_drones_keys_keeps_at_most_max_and_stops_after_the_delivery_cap(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from skyhaul_mcp_sim import ground
+
+    monkeypatch.setattr(ground, "MAX_DELIVERIES", 300)
+    codec = Codec()
+    alert = codec.encode(
+        codec.new(
+            MessageType.ALERT,
+            "dev-d001",
+            AlertPayload(
+                code=AlertCode.LOW_BATTERY,
+                severity=AlertSeverity.WARNING,
+                message="battery low",
+                value=19.0,
+            ),
+            None,
+        )
+    )
+    harness.broker.telemetry = [alert] * 5_000
+
+    wanted = data(harness.call("read_telemetry", {"drone_id": "dev-d001", "max": 2, "seconds": 5}))
+    unwanted = data(
+        harness.call(
+            "read_telemetry",
+            {"drone_id": "dev-d001", "types": ["POSITION"], "max": 2, "seconds": 5},
+        )
+    )
+
+    assert wanted["count"] == 2
+    assert unwanted["count"] == 0
+    assert harness.broker.prefetch == [ground.PREFETCH, ground.PREFETCH]
+
+
+def test_tap_stores_only_up_to_its_limit_however_many_messages_arrive() -> None:
+    from types import SimpleNamespace
+
+    from skyhaul_mcp_sim import ground
+
+    codec = Codec()
+    body = codec.encode(
+        codec.new(
+            MessageType.ALERT,
+            "dev-d001",
+            AlertPayload(
+                code=AlertCode.LOW_BATTERY,
+                severity=AlertSeverity.WARNING,
+                message="battery low",
+                value=19.0,
+            ),
+            None,
+        )
+    )
+    acked: list[int] = []
+    channel = SimpleNamespace(basic_ack=acked.append, basic_nack=lambda tag, requeue: None)
+    tap = ground._Tap(None, channel, codec, keep=lambda m: True, limit=3)
+
+    for tag in range(1, 2_001):
+        tap.on_message(channel, SimpleNamespace(delivery_tag=tag), None, body)
+
+    assert len(tap.received) == 3
+    assert len(acked) == 2_000  # everything is acked, so the broker never redelivers
+    assert tap.done
+
+
+def test_a_control_url_that_is_not_local_is_refused_and_the_token_is_never_sent(
+    harness: Harness,
+) -> None:
+    from skyhaul_mcp_sim.config import Config
+
+    for url in ("http://evil.example:8100", "http://10.0.0.5:8100", "file:///etc/passwd"):
+        config = Config.from_env({**ENV, "SIM_CONTROL_URL": url})
+        with pytest.raises(Exception, match="SIM_CONTROL_URL must be"):
+            config.control_base_url()
+    for url in ("http://127.0.0.1:8100", "http://localhost:9000", "http://[::1]:8100"):
+        assert Config.from_env({**ENV, "SIM_CONTROL_URL": url}).control_base_url() == url

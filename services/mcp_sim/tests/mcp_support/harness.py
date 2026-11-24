@@ -26,7 +26,7 @@ from skyhaul_mcp_sim.server import build_server
 TOKEN = "tok-" + "7" * 40
 PASSWORD = "pw-" + "9" * 30
 ENV = {
-    "SIM_CONTROL_URL": "http://sim.test",
+    "SIM_CONTROL_URL": "http://localhost:8100",
     "SIM_CONTROL_TOKEN": TOKEN,
     "RABBITMQ_USER": "ground",
     "RABBITMQ_PASSWORD": PASSWORD,
@@ -80,6 +80,7 @@ class FakeBroker:
     acks: list[int] = field(default_factory=list)
     nacks: list[int] = field(default_factory=list)
     bindings: list[str] = field(default_factory=list)
+    prefetch: list[int] = field(default_factory=list)
 
     def connect(self, params: pika.ConnectionParameters) -> FakeConnection:
         if self.down:
@@ -124,6 +125,9 @@ class FakeChannel:
 
     def queue_bind(self, queue: str, exchange: str, routing_key: str) -> None:
         self.broker.bindings.append(routing_key)
+
+    def basic_qos(self, prefetch_count: int) -> None:
+        self.broker.prefetch.append(prefetch_count)
 
     def basic_consume(self, queue: str, on_message_callback: Callable[..., None]) -> None:
         self.connection.callback = on_message_callback

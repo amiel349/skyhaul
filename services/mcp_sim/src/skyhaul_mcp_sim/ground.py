@@ -44,6 +44,11 @@ log = logging.getLogger(__name__)
 
 POLL_S: Final = 0.1
 MAX_ERRORS: Final = 5
+PREFETCH: Final = 100
+"""At most this many unacked deliveries are pushed to a tap at once."""
+MAX_DELIVERIES: Final = 10_000
+"""A call stops reading after this many deliveries, wanted or not, so a flood on the
+drone's routing keys can't keep it busy or grow its memory."""
 REPLY_TYPES: Final = frozenset({MessageType.ACK, MessageType.NACK})
 NO_REPLY_EXPLANATION: Final = (
     "No ACK or NACK arrived in time. The broker routed the command to the simulator's "
@@ -59,26 +64,41 @@ type Params = Callable[[], pika.ConnectionParameters]
 
 @dataclass
 class _Tap:
-    """An exclusive queue on one drone's messages and the decoded messages it received."""
+    """An exclusive queue on one drone's messages. Keeps only the messages the call wants
+    (`keep`), at most `limit` of them; everything else is acked and dropped at once, so
+    memory stays bounded however much arrives."""
 
     connection: Any
     channel: Any
     codec: Codec
+    keep: Callable[[Message[BaseModel]], bool]
+    limit: int
     received: list[Message[BaseModel]] = field(default_factory=list)
     rejected: int = 0
+    deliveries: int = 0
+
+    @property
+    def done(self) -> bool:
+        return len(self.received) >= self.limit or self.deliveries >= MAX_DELIVERIES
 
     def on_message(self, channel: Any, method: Any, properties: Any, body: bytes) -> None:
+        self.deliveries += 1
+        if self.done and self.deliveries > MAX_DELIVERIES:
+            channel.basic_ack(method.delivery_tag)
+            return
         try:
-            self.received.append(self.codec.decode(body))
+            message = self.codec.decode(body)
         except DecodeError as exc:
             log.warning("undecodable message dropped", extra={"reason": exc.reason})
             self.rejected += 1
             channel.basic_nack(method.delivery_tag, requeue=False)
             return
+        if len(self.received) < self.limit and self.keep(message):
+            self.received.append(message)
         channel.basic_ack(method.delivery_tag)
 
-    def pump(self, deadline: float, done: Callable[[], bool]) -> None:
-        while not done():
+    def pump(self, deadline: float) -> None:
+        while not self.done:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
@@ -102,7 +122,13 @@ class GroundStation:
         routing_key = Codec.routing_key(drone_id, msg.type.value)
         sent = {"msg_id": msg.msg_id, "type": msg.type.value, "drone_id": drone_id}
         log_extra = {"correlation_id": msg.correlation_id, "drone_id": drone_id}
-        with self._tap(drone_id) as tap:
+
+        def is_reply(m: Message[BaseModel]) -> bool:
+            return m.type in REPLY_TYPES and str(getattr(m.payload, "command_msg_id", "")) == (
+                msg.msg_id
+            )
+
+        with self._tap(drone_id, keep=is_reply, limit=1) as tap:
             try:
                 tap.channel.basic_publish(
                     COMMAND_EXCHANGE,
@@ -127,7 +153,8 @@ class GroundStation:
                     command=sent,
                 ) from None
             log.info("command sent", extra={**log_extra, "type": msg.type.value})
-            reply = self._wait_reply(tap, msg.msg_id, time.monotonic() + timeout_s)
+            tap.pump(time.monotonic() + timeout_s)
+            reply = tap.received[0] if tap.received else None
         if reply is None:
             log.info("no reply", extra=log_extra)
             return {
@@ -147,13 +174,11 @@ class GroundStation:
     ) -> dict[str, Any]:
         """Messages from one drone for `seconds`, at most `max_messages`, oldest first."""
         _check_drone_id(drone_id)
-        with self._tap(drone_id) as tap:
-
-            def wanted() -> list[Message[BaseModel]]:
-                return [m for m in tap.received if types is None or m.type in types]
-
-            tap.pump(time.monotonic() + seconds, lambda: len(wanted()) >= max_messages)
-            messages = wanted()[:max_messages]
+        with self._tap(
+            drone_id, keep=lambda m: types is None or m.type in types, limit=max_messages
+        ) as tap:
+            tap.pump(time.monotonic() + seconds)
+            messages = list(tap.received)
         return {
             "drone_id": drone_id,
             "seconds": seconds,
@@ -184,7 +209,9 @@ class GroundStation:
             ) from None
 
     @contextmanager
-    def _tap(self, drone_id: str) -> Iterator[_Tap]:
+    def _tap(
+        self, drone_id: str, keep: Callable[[Message[BaseModel]], bool], limit: int
+    ) -> Iterator[_Tap]:
         params = self._params()
         try:
             connection = self._connect(params)
@@ -208,7 +235,8 @@ class GroundStation:
             channel.exchange_declare(TELEMETRY_EXCHANGE, exchange_type="topic", durable=True)
             queue = channel.queue_declare("", exclusive=True, auto_delete=True).method.queue
             channel.queue_bind(queue, TELEMETRY_EXCHANGE, routing_key=drone_binding(drone_id))
-            tap = _Tap(connection, channel, self._codec)
+            tap = _Tap(connection, channel, self._codec, keep, limit)
+            channel.basic_qos(prefetch_count=PREFETCH)
             channel.basic_consume(queue, on_message_callback=tap.on_message)
             yield tap
         except (pika.exceptions.AMQPError, OSError) as exc:
@@ -217,20 +245,6 @@ class GroundStation:
             ) from None
         finally:
             _close(connection)
-
-    def _wait_reply(
-        self, tap: _Tap, command_msg_id: str, deadline: float
-    ) -> Message[BaseModel] | None:
-        def match() -> Message[BaseModel] | None:
-            for m in tap.received:
-                if m.type in REPLY_TYPES and str(getattr(m.payload, "command_msg_id", "")) == (
-                    command_msg_id
-                ):
-                    return m
-            return None
-
-        tap.pump(deadline, lambda: match() is not None)
-        return match()
 
 
 def _check_drone_id(drone_id: str) -> None:
