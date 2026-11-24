@@ -1,6 +1,6 @@
 # M1 design · Contracts and drone simulator
 
-Status: accepted · 2026-11-23 · owner: architect
+Status: accepted · 2026-11-23 · updated 2026-11-24 to match the merged code (PRs #15 to #21; the code wins where they differ) · owner: architect
 
 Issues: #6 (contracts and codec), #7 (simulator core), #8 (drone behavior), #9 (control API), #10 (fault injection), #11 (MCP server).
 
@@ -81,14 +81,18 @@ Every numeric field has a unit in its name or description and both bounds (contr
 | Type | Payload | Preconditions (otherwise NACK) | Pattern | Effect |
 |---|---|---|---|---|
 | `ARM` | `{}` | LANDED. `battery_pct ≥ 15` (else BATTERY_TOO_LOW) | Simple reply | → ARMED |
-| `TAKEOFF` | `{altitude_m: AltitudeM}` | ARMED | Moving | → TAKING_OFF → HOVERING. Starts the POSITION job |
-| `GOTO` | `{lat, lon, altitude_m: AltitudeM, speed_mps?: SpeedMps}` | Airborne. No active mission (MISSION_ACTIVE). Target inside the geofence (OUT_OF_BOUNDS) | Moving | → FLYING → HOVERING at the target |
-| `RETURN_HOME` | `{}` | Airborne | Moving | → RETURNING → LANDING → LANDED (disarmed). Aborts any mission |
-| `LAND` | `{}` | Airborne | Simple reply (motion via the existing POSITION job) | → LANDING → LANDED (disarmed). Aborts any mission |
-| `SET_SPEED` | `{speed_mps: SpeedMps}` | Any state | Simple reply | Sets the cruise speed |
-| `START_MISSION` | `{mission_id: ^[A-Za-z0-9_-]{1,64}$, waypoints: [Waypoint] (1 … 50)}` | ARMED or airborne. No active mission. Every waypoint inside the geofence | Triggered periodic | Flies the waypoints in order and hovers at the last. Starts MISSION_STATUS, and POSITION if not already running |
+| `TAKEOFF` | `{altitude_m: AltitudeM}` | ARMED. Battery above critical (BATTERY_TOO_LOW) | Moving | → TAKING_OFF → HOVERING. Starts the POSITION job |
+| `GOTO` | `{lat, lon, altitude_m: AltitudeM, speed_mps?: SpeedMps}` | Airborne. Battery above critical (BATTERY_TOO_LOW). No active mission (MISSION_ACTIVE). Target inside the geofence (OUT_OF_BOUNDS) | Moving | → FLYING → HOVERING at the target |
+| `RETURN_HOME` | `{}` | Airborne | Moving | → RETURNING → LANDING → LANDED (disarmed). Aborts any mission: the reply is `[ACK, final MISSION_STATUS ABORTED]` |
+| `LAND` | `{}` | Airborne | Simple reply (motion via the existing POSITION job) | → LANDING → LANDED (disarmed). Aborts any mission: the reply is `[ACK, final MISSION_STATUS ABORTED]` |
+| `SET_SPEED` | `{speed_mps: SpeedMps}` | Any state. Battery above critical (BATTERY_TOO_LOW) | Simple reply | Sets the cruise speed |
+| `START_MISSION` | `{mission_id: ^[A-Za-z0-9_-]{1,64}$, waypoints: [Waypoint] (1 … 50)}` | ARMED or airborne. Battery above critical. No active mission. Every waypoint inside the geofence | Triggered periodic | Flies the waypoints in order and hovers at the last. Starts MISSION_STATUS, and POSITION if not already running |
 
 ACK means **accepted**, not completed. Completion shows up in telemetry.
+
+**Critical battery** (product owner decision, PR #17): at or below `CRITICAL_BATTERY_PCT` = 10 % a drone only returns home or lands. TAKEOFF, GOTO, START_MISSION and SET_SPEED get NACK `BATTERY_TOO_LOW` (after the state check, before the mission and geofence checks), so nobody can launch, redirect or slow a drone heading home on its last charge, and no command is acked and then silently overridden by the forced landing at 0 %. ARM keeps its own threshold (`battery_pct ≥ 15`). LAND and RETURN_HOME are always allowed when airborne.
+
+**Final status on abort.** LAND or RETURN_HOME during a mission put the final MISSION_STATUS `ABORTED` (persistent) in the same reply list, right after the ACK, and remove the MISSION_STATUS job. A START_MISSION arriving before the next tick therefore cannot swallow the final status. The dedup cache keeps only the ACK, so a duplicate replays the ACK and not the status.
 
 ### Telemetry (on `fleet.telemetry`, key `drone.<id>.<TYPE>`)
 
@@ -100,7 +104,7 @@ ACK means **accepted**, not completed. Completion shows up in telemetry.
 | `BATTERY` | `{charge_pct: Percent, est_remaining_s: DurationS}` | Drone-initiated periodic | 5 s from spawn | Transient |
 | `POSITION` | `{lat, lon, altitude_m (0…150), heading_deg, ground_speed_mps (0…25), target: GeoPoint or null}` | Moving | 1 s while airborne. One final message on touchdown, then the job is removed | Transient |
 | `MISSION_STATUS` | `{mission_id, state: MissionState, waypoint_index: 0…50, waypoints_total: 1…50, progress_pct: Percent}` | Triggered periodic | 2 s while ACTIVE. One final message on COMPLETED or ABORTED, then the job is removed | Transient (the final one is persistent) |
-| `ALERT` | `{code: AlertCode, severity: AlertSeverity, message: string ≤256, value: number (±1e6) or null}` | Event | Once per threshold crossing (latched) | Persistent |
+| `ALERT` | `{code: AlertCode, severity: AlertSeverity, message: string ≤256, value: number (±1e6) or null}` | Event | Once per threshold crossing (latched; re-armed once the condition is false again, e.g. battery back above the threshold). Dropped, not queued, during link loss | Persistent |
 
 Enums:
 
@@ -108,7 +112,7 @@ Enums:
 |---|---|
 | `FlightState` | `LANDED`, `ARMED`, `TAKING_OFF`, `HOVERING`, `FLYING`, `RETURNING`, `LANDING` |
 | `NackReason` | `UNKNOWN_TYPE`, `UNSUPPORTED_VERSION`, `INVALID_PAYLOAD`, `INVALID_STATE`, `MISSION_ACTIVE`, `BATTERY_TOO_LOW`, `OUT_OF_BOUNDS`, `INJECTED` (fault), `INTERNAL_ERROR` (handler raised) |
-| `AlertCode` | `LOW_BATTERY` (≤20 %, WARNING), `CRITICAL_BATTERY` (≤10 %, CRITICAL, auto RETURN_HOME), `GEOFENCE_BREACH` (reported position outside the radius, re-armed when back inside), `LINK_RESTORED` (INFO, when a link-loss fault ends) |
+| `AlertCode` | `LOW_BATTERY` (≤20 %, WARNING), `CRITICAL_BATTERY` (≤10 %, CRITICAL; auto RETURN_HOME only when airborne and not already RETURNING or LANDING), `GEOFENCE_BREACH` (WARNING, reported position outside the radius, `value` = meters outside the fence, re-armed when back inside), `LINK_RESTORED` (INFO, when a link-loss fault expires) |
 | `AlertSeverity` | `INFO`, `WARNING`, `CRITICAL` |
 | `MissionState` | `ACTIVE`, `COMPLETED`, `ABORTED` |
 
@@ -130,7 +134,7 @@ All names and arguments are constants in `skyhaul_contracts.topology`.
 | `debug.telemetry` | classic queue, optional | no | Only when `SIM_DEBUG_TAP=1` (`declare_debug_tap`). Bound to `fleet.telemetry` with `drone.*.*`, `x-max-length=1000`, `x-overflow=drop-head` |
 | Telemetry consumers | | | Owned by their service (ingestor in M2). Tests and the MCP server use exclusive auto-delete queues bound to `drone_binding(id)` = `drone.<id>.*` |
 
-`declare_topology` declares everything except the debug tap. **Both durable queues are length-bounded** (`MAX_QUEUE_LENGTH = 10_000`), so a flood cannot exhaust broker disk. The bounds are part of the contract from v1 on, because queue arguments cannot change after the first declare without PRECONDITION_FAILED (changing them means a new queue name and a migration). A full `drone_sim.cmd` rejects new publishes instead of dropping commands, so a sender with publisher confirms gets a nack and sees back-pressure; command senders must use confirms and treat a nack as "not sent". **Command senders call it too**, not only the simulator: then a command published before the simulator first starts is queued in `drone_sim.cmd` instead of being unroutable (#7 durability criterion).
+`declare_topology` declares everything except the debug tap. **Both durable queues are length-bounded** (`MAX_QUEUE_LENGTH = 10_000`), so a flood cannot exhaust broker disk. The bounds are part of the contract from v1 on, because queue arguments cannot change after the first declare without PRECONDITION_FAILED (changing them means a new queue name and a migration). A full `drone_sim.cmd` rejects new publishes instead of dropping commands, so a sender with publisher confirms gets a nack and sees back-pressure; command senders must use confirms and treat a nack as "not sent". **Command senders call it too**, not only the simulator: then a command published before the simulator first starts is queued in `drone_sim.cmd` instead of being unroutable (#7 durability criterion). The test command client and the fleet API (M2) do. **The MCP server is the exception** (PR #21): it declares only the two exchanges and its own exclusive reply queue, so a command sent when the simulator has never run comes back unroutable at once. Once the simulator has run, its durable queue remains, and a command sent while it is stopped waits there and the tool answers `no_reply`.
 
 **One queue for all drones, not one per drone:**
 - The consumer count and channel count stay constant, which fits ADR 0003's fixed three threads.
@@ -148,7 +152,7 @@ Poison messages:
 | Case | Handling |
 |---|---|
 | `MalformedMessage` (not bytes, too large, not UTF-8, not JSON, not an object, invalid envelope) or a routing-key mismatch | `basic_reject(requeue=False)` → `fleet.dead` |
-| `UnsupportedVersion` with readable `hint.msg_id` and `hint.drone_id`, and a routing-key `<id>` equal to `hint.drone_id` | NACK `UNSUPPORTED_VERSION` (`command_type` = `hint.type` or `""`, `detail` = `exc.detail`), then ack. Otherwise: reject → `fleet.dead` |
+| `UnsupportedVersion` with readable `hint.msg_id` and `hint.drone_id`, a routing-key `<id>` equal to `hint.drone_id`, and `hint.type` absent or equal to the routing-key `<type>` | NACK `UNSUPPORTED_VERSION` (`command_type` = `hint.type` or `""`, `detail` = `exc.detail`), then ack. Otherwise: reject → `fleet.dead` |
 | `UnknownType`, `InvalidPayload` (valid envelope) | NACK `UNKNOWN_TYPE` / `INVALID_PAYLOAD`, then ack |
 | A telemetry type arriving on the command queue | No handler: NACK `UNKNOWN_TYPE`, then ack |
 | Handler raises | Log with traceback, NACK `INTERNAL_ERROR`, ack. Never requeued (section 5, "Handler failure") |
@@ -157,6 +161,7 @@ Poison messages:
 Publishing:
 - The simulator publisher uses **publisher confirms** (`confirm_delivery()`) and `mandatory=False`, because telemetry with no subscriber is fine to drop.
 - The MCP and test command senders use `mandatory=True`, so an unroutable command fails immediately when the simulator's queue does not exist.
+- A broker nack is retried at most 5 times with backoff, then the message is dropped, counted and logged (ADR 0003, PR #15 amendment).
 
 ## 4. Codec API (`skyhaul_contracts.codec`)
 
@@ -215,14 +220,14 @@ Errors (`skyhaul_contracts.errors`). Every `errors` tuple holds at most 5 entrie
 | `CodecError` | base | |
 | `DecodeError(CodecError)` | `reason: str` (keys the codec counters), `errors`, `detail` (NACK text, at most `NACK_DETAIL_MAX_LENGTH` = 256 characters, never input values) | |
 | `MalformedMessage(DecodeError)` | `reason`: `not_bytes`, `too_large`, `not_utf8`, `not_json`, `not_object` or `invalid_envelope`; `errors` names the field (e.g. `msg_id: missing`) | reject → DLX |
-| `UnsupportedVersion(DecodeError)` | `version` (sender input; the message text does not contain it, and callers must not echo it), `hint: EnvelopeHint` | NACK `UNSUPPORTED_VERSION` when `hint.msg_id` and `hint.drone_id` are set **and** the routing key's `<id>` equals `hint.drone_id`; otherwise reject → DLX |
+| `UnsupportedVersion(DecodeError)` | `version` (sender input; the message text does not contain it, and callers must not echo it), `hint: EnvelopeHint` | NACK `UNSUPPORTED_VERSION` when `hint.msg_id` and `hint.drone_id` are set, the routing key's `<id>` equals `hint.drone_id`, **and** `hint.type` is absent or equals the routing key's `<type>`; otherwise reject → DLX |
 | `UnknownType(DecodeError)` | `envelope` (the validated v1 `Envelope`) | NACK `UNKNOWN_TYPE` |
 | `InvalidPayload(DecodeError)` | `envelope`, `errors` | NACK `INVALID_PAYLOAD` |
 | `EncodeError(CodecError)` | `type`, `errors` | Publisher logs, counts and drops. This is a simulator bug, and a test asserts the count stays 0 |
 
 `EnvelopeHint` holds `msg_id`, `drone_id`, `type` and `correlation_id`, each read on its own without the version-specific schema; a field is `None` when missing or not matching its v1 pattern.
 
-**NACK target for an unsupported version.** The hint is read from a message the Codec could not validate, so its `drone_id` is only a claim. Before sending NACK `UNSUPPORTED_VERSION`, the consumer checks that the routing key's `<id>` equals `hint.drone_id`; on a mismatch it rejects to the DLX. Otherwise anyone who can publish to `fleet.cmd` could make the simulator send a NACK in the name of any drone. NACK `detail` is always built from `DecodeError.detail`, which cannot exceed the schema's 256 characters.
+**NACK target for an unsupported version.** The hint is read from a message the Codec could not validate, so its `drone_id` is only a claim. Before sending NACK `UNSUPPORTED_VERSION`, the consumer checks that the routing key's `<id>` equals `hint.drone_id`, and that a readable `hint.type` equals the routing key's `<type>` (stricter than the original rule, PR #15); on a mismatch it rejects to the DLX. Otherwise anyone who can publish to `fleet.cmd` could make the simulator send a NACK in the name of any drone. NACK `detail` is always built from `DecodeError.detail`, which cannot exceed the schema's 256 characters.
 
 ## 5. `drone_sim` package layout
 
@@ -230,20 +235,24 @@ Errors (`skyhaul_contracts.errors`). Every `errors` tuple holds at most 5 entrie
 
 | Module (`src/skyhaul_drone_sim/`) | Contents |
 |---|---|
-| `__main__.py` | Wiring, signal handlers, `Simulator.run()` and shutdown (section 6) |
-| `config.py` | `SimConfig` frozen dataclass from env (`from_env()`). Fails fast on missing secrets. Fields: `rabbitmq_host`, `rabbitmq_port`, `rabbitmq_user`, `rabbitmq_password`, `rabbitmq_vhost`, `control_host`, `control_port=8100`, `control_token` (≥32 chars, no default), `tick_s=0.1`, `outbox_max=1000`, `prefetch=32`, `seed`, `geofence_radius_m=5000`, `default_home: GeoPoint`, `snapshot_path`, `debug_tap` |
+| `__main__.py` | Config, logging, signal handlers, exit codes (2: bad config) |
+| `simulator.py` | `Simulator`: wiring of the four threads, `run()` (exit 1: broker unavailable; exit 3: control port cannot be bound), `stop()`, `reset()` (board reset plus the in-flight fence), the `/stats` and `/healthz` sources, shutdown (section 6) |
+| `config.py` | `SimConfig` frozen dataclass from env (`from_env()`). Fails fast on missing secrets. Fields: `rabbitmq_host`, `rabbitmq_port`, `rabbitmq_user`, `rabbitmq_password`, `rabbitmq_vhost`, `rabbitmq_heartbeat_s=30`, `connect_timeout_s=30`, `control_host`, `control_port=8100`, `control_token` (≥32 chars, no default), `tick_s=0.1`, `outbox_max=1000`, `prefetch=32`, `drain_s=5`, `debug_tap`, `drones` (`SIM_DRONES`, optional startup ids). Non-secret simulation settings, each bounded and with a default (PR #17): `seed` (`SIM_SEED`, 0), `geofence_radius_m` (`SIM_GEOFENCE_RADIUS_M`, 5000, 100…50 000), `home_lat` (`SIM_HOME_LAT`, 32.0, −80…80), `home_lon` (`SIM_HOME_LON`, 34.8, −179…179) |
 | `clock.py` | `Clock` protocol (`monotonic()`, `utcnow()`), `SystemClock`, and `FakeClock` for tests |
-| `model.py` | `GeoPoint`, `FlightState`, `Mission`, `Faults`, `Drone` (dataclass with slots: `drone_id`, `namespace`, `epoch`, `home`, `pos`, `heading_deg`, `ground_speed_mps`, `cruise_mps=10`, `target`, `state`, `battery_pct`, `mission`, `faults`, `alerts_latched: set[AlertCode]`, `recent_cmds: OrderedDict[str, list[Outgoing]]` (≤256), `rng: random.Random`, `spawned_at`) |
+| `model.py` | `GeoPoint`, `Target`, `Mission`, `Drone` (dataclass with slots: `drone_id`, `home`, `spawned_at`, `rng: random.Random`, `geofence_radius_m`, `pos`, `altitude_m`, `heading_deg`, `ground_speed_mps`, `climbing`, `cruise_mps=10`, `target`, `state`, `battery_pct`, `mission`, `alerts_latched: set[AlertCode]`, `recent_cmds: OrderedDict[str, list[Outgoing]]` (≤256, ACK/NACK only), `faults: dict[FaultKind, Fault]`, `gps_offset_m`). The namespace is derived from the id; the epoch is stamped on `Outgoing`, not stored on the drone |
+| `namespaces.py` | `NAMESPACE_PATTERN`, `namespace_of(drone_id)`, `nth_drone_id`, `MAX_DRONES_PER_NAMESPACE = 999` |
 | `physics.py` | Pure functions: `step_movement(d, dt) -> None`, `drain_battery(d, dt) -> None`, `offset_m(a, b) -> tuple[float, float]`, `bearing_deg(a, b) -> float`, `distance_m(a, b) -> float` |
-| `board.py` | `Job`, `JobsBoard`, `World` (the transaction view) |
-| `behaviors.py` | Job factories (`heartbeat_job`, `battery_job`, `position_job`, `mission_job`), `check_alerts(d) -> list[Outgoing]`, `spawn_drone(...)` |
+| `board.py` | `Job`, `JobsBoard`, `World` (the transaction view). The board holds the drones as well as the jobs (PR #17) |
+| `behaviors.py` | Job factories (`heartbeat_job`, `battery_job`, `position_job`, `mission_job`), `fly_to`, `return_home`, `land_in_place`, `start_mission`, `abort_mission`, `check_alerts(d) -> list[Outgoing]`, `CRITICAL_BATTERY_PCT = 10` |
+| `replies.py` | `ack`, `nack_command` |
 | `registry.py` | `Registry`, the `@handles` decorator, `dispatch` |
 | `handlers.py` | One handler per `CommandType` |
-| `faults.py` | `FaultKind`, `apply_fault`, `expire_faults(d, now) -> list[Outgoing]`, `link_lost(d, now) -> bool`, `take_injected_nack(d) -> bool` |
-| `outbox.py` | `Outgoing`, `Outbox = queue.Queue[Outgoing or Sentinel]`, `SENTINEL` |
+| `faults.py` | `FaultKind`, `Fault`, `apply_fault` (replaces an active fault of the same kind), `clear_faults`, `tick_faults(d, now) -> list[Outgoing]` (expire, then redraw the GPS offset), `link_lost(d) -> bool`, `take_injected_nack(d) -> bool`, `reply_delay_s`, `drain_factor`, `fault_view` |
+| `outbox.py` | `Outgoing`, `UNSTAMPED`, `Outbox = queue.Queue[Outgoing or Sentinel]`, `SENTINEL`, `put_until_stopped`, `new_message` |
+| `amqp.py`, `logs.py` | Per-thread connection factory with retry; JSON logging |
 | `consumer.py`, `scheduler.py`, `publisher.py` | The three threads |
 | `control_api.py` | `create_app(board, cfg) -> Flask`, `ControlServer` (werkzeug `make_server(threaded=False)` on one thread) |
-| `snapshot.py` | `write_atomic(path, data)` (tmp file + `os.replace`) |
+| `snapshot.py` | Not built yet: `write_atomic(path, data)` (tmp file + `os.replace`) arrives with the snapshot issue, together with shutdown step 8 |
 
 **Key signatures**
 
@@ -252,11 +261,13 @@ Errors (`skyhaul_contracts.errors`). Every `errors` tuple holds at most 5 entrie
 class Outgoing:
     message: Message[BaseModel]
     persistent: bool
-    namespace: str
-    epoch: int                       # namespace epoch when produced (ADR 0009)
+    namespace: str = ""
+    epoch: int = UNSTAMPED           # -1, never current; stamped under the board lock (ADR 0009)
 
-TickFn   = Callable[[Drone, float], list[Outgoing]]   # (drone, dt) -> events (ALERTs, final statuses)
-RenderFn = Callable[[Drone], BaseModel]                # payload from current drone state
+TickFn    = Callable[[Drone, Job, float], list[Outgoing]]  # tick(drone, job, dt) -> events (ALERTs)
+RenderFn  = Callable[[Drone, Job, float], BaseModel]       # render(drone, job, now) -> payload
+DoneFn    = Callable[[Drone], bool]
+MakeDrone = Callable[[str], tuple[Drone, list[Job]]]       # make(drone_id); runs under the lock
 
 @dataclass(frozen=True, slots=True)
 class Job:                          # __post_init__: period_s finite and > 0, next_due finite
@@ -268,6 +279,8 @@ class Job:                          # __post_init__: period_s finite and > 0, ne
     tick: TickFn | None = None       # run every scheduler tick while the job exists
     correlation_id: str | None = None
     values: dict[str, Any] = field(default_factory=dict)   # the only part that changes in place
+    done: DoneFn | None = None       # checked after the tick; true -> one final message, job removed
+    final_persistent: bool = False   # whether that final message is persistent
 
 @dataclass(frozen=True, slots=True)
 class DueResult:
@@ -281,18 +294,30 @@ class JobsBoard:
     def remove(self, drone_id: str, type: TelemetryType) -> bool
     def due(self, now: float, dt: float) -> DueResult     # run ticks, emit due jobs; ValueError if now is not finite
     def transaction(self) -> ContextManager[World]        # lock held for the with-block; copy-on-write World
-    def snapshot(self, namespace: str | None = None) -> list[dict[str, Any]]  # deep copies
-    def spawn(self, namespace: str, count: int, home: GeoPoint | None, battery_pct: float) -> list[str]
+    def snapshot(self) -> list[dict[str, Any]]           # deep copies
+    def spawn(self, namespace: str, count: int, make: MakeDrone) -> list[str]  # all or nothing
+    def add_drone(self, drone: Drone) -> None            # a bare drone, for tests
+    def remove_drone(self, drone_id: str) -> bool        # also drops its jobs and delayed replies
+    def drone(self, drone_id: str) -> Drone | None       # a copy
+    def drones(self, namespace: str) -> list[Drone]      # copies, by id
+    def add_fault(self, drone_id: str, fault: Fault) -> bool
+    def clear_faults(self, drone_id: str) -> bool
     def reset(self, namespace: str) -> ResetResult        # atomic; bumps the epoch
     def is_current(self, namespace: str, epoch: int) -> bool
-    def schedule_reply(self, at: float, out: Outgoing) -> None  # delayed one-shot (REPLY_DELAY fault), heap
+    def stamp(self, out: Outgoing) -> Outgoing           # for messages made off the board
 ```
+
+**Spawn takes a factory**, so the board does not import the behaviors (no import cycle). The factory runs under the lock and builds each drone and its jobs in memory. If one of the ids exists, or the namespace would pass 999 ids, `SpawnConflict` is raised and nothing changes.
+
+**Job completion.** A job whose `done(drone)` turns true after its tick emits one final message in that same `due()` call, due or not (persistent if `final_persistent`), and is removed: the final POSITION on touchdown, the final MISSION_STATUS on COMPLETED or ABORTED. `tick` and `render` get the job, so they keep its values and `correlation_id`; `render` gets `now`, so HEARTBEAT `uptime_s` is exact (summing the capped `dt` would undercount).
+
+**Delayed replies** (REPLY_DELAY) are a heap on the board, at most `MAX_DELAYED_PER_NAMESPACE = 1000` per namespace. There is no public `schedule_reply`: public board calls are refused inside a transaction, so `dispatch` stages them through the `World` (`can_delay`, `delay`) and they commit with the transaction. `due()` emits them once their time has come, unless the drone is in link loss.
 
 **Job identity.** A `Job` is frozen and validates `period_s` (finite, > 0) and `next_due` (finite) when it is built. Its identity (`drone_id`, `type`), period and correlation id never change in place; to change them, upsert a new `Job` (`dataclasses.replace`). Only the contents of `Job.values` change in place. The board keeps each job's real next due time in its own entry, next to the job; `World.get` returns a private copy of the job carrying that time.
 
 **`next_due` on upsert.** A new job is first due at its `next_due`. Replacing a job with the **same period** keeps the stored next due time, so re-sending a job does not shift it. If the period changed, the **earlier** of the stored and the requested `next_due` wins, so a faster rate starts when the caller asked.
 
-**Transactions are copy-on-write.** `World` offers `get`, `upsert`, `remove` and `discard` (plus `drone(id)` once the drone model lands). Changes, including changes to a job's `values`, are staged and reach the board only when the `with` block ends normally. If the block raises, or `world.discard()` is called, nothing is applied. A `World` used outside its block raises `RuntimeError`. Rule: **one `dispatch` per transaction**, because a failed dispatch discards everything staged in that transaction.
+**Transactions are copy-on-write.** `World` offers `get`, `upsert`, `remove`, `discard`, `has_drone`, `drone(id)` (a staged copy, written back on commit), `add_drone`, `count_unknown_drone_command`, `stamp`, `can_delay` and `delay`. Changes, including changes to a job's `values`, are staged and reach the board only when the `with` block ends normally. If the block raises, or `world.discard()` is called, nothing is applied. A `World` used outside its block raises `RuntimeError`. Rule: **one `dispatch` per transaction**, because a failed dispatch discards everything staged in that transaction.
 
 **No nested locking.** A public board call from the thread that already holds the board lock (a handler inside `transaction()`, or a tick or render) raises `RuntimeError` instead of deadlocking. The handler then gets NACK `INTERNAL_ERROR`, the tick a `JobError`. Use the `World` or job you were given.
 
@@ -301,16 +326,19 @@ Handler = Callable[[World, Message[Any], float], list[Outgoing]]   # (world, msg
 
 class Registry:
     def handles(self, type: CommandType) -> Callable[[Handler], Handler]  # duplicate registration raises at import
-    def dispatch(self, world: World, msg: Message[Any], now: float) -> list[Outgoing]
+    def dispatch(self, world: World, msg: Message[Any], now: float) -> DispatchResult
+    # DispatchResult: replies, plus unknown_drone, link_lost, duplicate, delayed, error (the handler's exception)
 ```
 
 `dispatch` runs these steps in order, all inside one board transaction:
 1. **Unknown drone:** log a warning, increment `unknown_drone_commands`, return `[]`.
 2. **Link loss** (`link_lost`): return `[]`. Nothing is applied and nothing is cached, so the command never happened as far as the drone is concerned.
 3. **Dedup** by `msg_id`: if cached, use the cached replies and go to step 6.
-4. **Injected NACK** (`take_injected_nack`, consumes one `NACK_NEXT` count): NACK `INJECTED`. Otherwise run the handler; no handler gives NACK `UNKNOWN_TYPE`. A handler that raises, or returns anything but a list of `Outgoing`, gets NACK `INTERNAL_ERROR` with a fixed detail, and `dispatch` calls `world.discard()`, so the failed command leaves the board unchanged.
-5. **Cache** the replies under `msg_id` (including NACKs).
-6. **Reply delay:** a `REPLY_DELAY` fault moves the replies into `schedule_reply` and returns `[]`; otherwise return them.
+4. **Delay cap:** under `REPLY_DELAY` with the namespace's delayed replies already at 1 000, NACK `INTERNAL_ERROR` at once (cached); the handler does not run, so an overflowing command is never applied (PR #20). Otherwise the **injected NACK** (`take_injected_nack`, consumes one `NACK_NEXT` count): NACK `INJECTED`. Otherwise run the handler; no handler gives NACK `UNKNOWN_TYPE`. A handler that raises, or returns anything but a list of `Outgoing`, gets NACK `INTERNAL_ERROR` with a fixed detail, and `dispatch` calls `world.discard()`, so the failed command leaves the board unchanged.
+5. **Cache** the ACK or NACK under `msg_id` (including NACKs). Telemetry a handler also returned (a final MISSION_STATUS) is not cached, so a duplicate does not replay it.
+6. **Reply delay:** a `REPLY_DELAY` fault stages the replies with `world.delay(now + delay_s, ...)` and returns `[]`; otherwise return them. Replies that no longer fit under the cap here (only a duplicate's replay, or an ACK plus a final MISSION_STATUS, can get past step 4 that way) go out undelayed rather than being dropped.
+
+The consumer stamps the replies with `world.stamp` before the transaction ends (ADR 0009).
 
 Only link loss is checked before dedup; the injected NACK is checked after it. (The step list in the PR #12 `dispatch` docstring groups both into one "fault gate" before dedup; this order, decision 12, is the one #10 implements.) Why link loss comes before dedup (#10 edge case "a duplicate `msg_id` during link loss: nothing is published"): a drone out of radio range cannot answer anything, including a command it has seen before. If dedup ran first, a redelivered or resent `msg_id` would replay its cached ACK straight through the outage. Why the injected NACK comes after dedup: one `msg_id` must always get the same answer. A duplicate of an already-ACKed command replays the ACK and does not consume a `NACK_NEXT` count, and a duplicate of an injected NACK replays that NACK. Why the delay comes last: it applies to whatever the drone says, so stacked `REPLY_DELAY` plus `NACK_NEXT` delays the NACK `INJECTED`, as #10 requires.
 
@@ -331,7 +359,7 @@ while not stop.wait(max(0.0, next_t - clock.monotonic())):
     for err in result.errors:
         log.error(...)  # outside the lock, with err.key and the traceback
     next_t = max(next_t + cfg.tick_s, now)  # no catch-up bursts
-    # every 5 s: data = board.snapshot(); snapshot.write_atomic(...)   (outside the lock)
+    # snapshot issue (not built yet): every 5 s, board.snapshot() and snapshot.write_atomic(...) outside the lock
 ```
 
 `due` emits a job at most once per call, when `now ≥ next_due`, then moves `next_due` to the first slot on the job's own grid that is after `now`:
@@ -351,24 +379,29 @@ On time, that is `next_due += period`: adding the period to the previous due tim
 - **Horizontal:** local flat-earth offsets (`dN = Δlat·111 320`, `dE = Δlon·111 320·cos lat`), which are accurate enough inside a 5 km geofence. `step = min(cruise·dt, dist)`. `heading = atan2(dE, dN)` mod 360. The drone arrives when it is within 1 m and 0.5 m vertically, then snaps to the target.
 - **Vertical:** climb at 3 m/s, descend at 2 m/s, at the same time as horizontal movement. TAKEOFF and LAND are vertical only.
 - **Battery** (%/s): LANDED 0; ARMED 0.01; airborne `0.05 + 0.004·ground_speed + (0.03 if climbing)`, times the `BATTERY_DRAIN` factor. That gives about 18 min at 10 m/s. `est_remaining_s = charge / airborne rate at cruise`. At 0 % the drone is forced into LANDING in place.
-- **GPS drift fault:** adds a seeded random offset of up to `drift_m` to the *reported* position only. The true position is unchanged.
+- **GPS drift fault:** adds a seeded random offset of up to `drift_m` to the *reported* position only. The true position is unchanged. The offset is redrawn every tick and stored on the drone (`gps_offset_m`), so POSITION and the geofence check see the same reported position.
 - **RNG:** `random.Random(seed_from(cfg.seed, drone_id))`, using a stable hash (blake2b), so runs are deterministic.
 
 **Faults** (on `Drone.faults`, expire on scheduler ticks):
 
 | Kind | Params | Effect |
 |---|---|---|
-| `LINK_LOSS` | `duration_s` 1…600 | Commands are dropped silently (acked, not cached, not applied). No telemetry is emitted, and delayed replies that fall due during the outage are dropped. Physics keeps running. Ends with ALERT `LINK_RESTORED`; clearing faults ends it without the alert; a reset removes the drone, so no alert |
-| `NACK_NEXT` | `count` 1…100 | The next N new commands get NACK `INJECTED` |
-| `REPLY_DELAY` | `delay_s` 0.1…30, `duration_s?` | Replies go through `schedule_reply`. The handler never sleeps |
+| `LINK_LOSS` | `duration_s` 1…600 (required) | Commands are dropped silently (acked, not cached, not applied). No telemetry is emitted: periodic messages and events (alerts, final statuses) produced during the outage are dropped, not queued, and delayed replies that fall due during it are dropped. Physics keeps running. Ends with ALERT `LINK_RESTORED`; clearing faults ends it without the alert; a reset removes the drone, so no alert |
+| `NACK_NEXT` | `count` 1…100 (no duration) | The next N new commands get NACK `INJECTED` |
+| `REPLY_DELAY` | `delay_s` 0.1…30, `duration_s?` | Replies are staged as one-shots on the board (`World.delay`). The handler never sleeps |
 | `BATTERY_DRAIN` | `factor` 1…100, `duration_s?` | Multiplies the drain rate |
 | `GPS_DRIFT` | `drift_m` 1…500, `duration_s?` | Offsets the reported position |
+
+`duration_s` is 1…600 s for every kind that takes one. Posting a kind that is already active replaces it (replacing a LINK_LOSS sends no `LINK_RESTORED`). The control API shows a fault as `{kind, <param>, expires_in_s}` (`expires_in_s` is null without a duration); NACK_NEXT shows the count left.
 
 **Namespaces and drone IDs** (ADR 0009):
 - A namespace matches `^[a-z0-9]{1,16}$`: `gw0`…`gwN` per xdist worker, `main` without xdist, `dev` for MCP.
 - `spawn` creates `<ns>-d001`, `<ns>-d002`, … A namespace cannot contain `-`, so the prefix `ns + "-"` is unambiguous (`gw1` never matches `gw10-…`). Every generated ID is a valid `DroneId`.
 - `reset(ns)` works atomically under the lock. It removes the namespace's drones, jobs, faults and delayed replies, clears its dedup caches, resets its ID counter, and bumps `epoch[ns]`.
-- The publisher drops any `Outgoing` whose epoch is no longer current. So a message produced before a reset but still in the outbox is never published.
+- The publisher drops any `Outgoing` whose epoch is no longer current, counted as `dropped_stale`. So a message produced before a reset but still in the outbox is never published.
+- `Outgoing.namespace` and `epoch` default to unstamped (`epoch = -1`), which is never current: a message nobody stamped is dropped and counted, not published. Stamping happens only at the lock boundary: `World.stamp` (consumer replies), `World.delay` (delayed replies, stamped when staged), `due()` (scheduler output) and `JobsBoard.stamp` (NACKs for commands that failed to decode but can be answered).
+- The epoch check and the publish are not atomic (no network under the lock), so `Simulator.reset` then waits, at most 2 s, for the publisher's in-flight message to be published or dropped (`wait_for_in_flight`). If it doesn't finish, `/reset` answers 503 `reset_unconfirmed`; the board is already reset, and resetting again is safe.
+- Deleting one drone does not bump an epoch, so messages already in the outbox for it can still go out within milliseconds (accepted in PR #18).
 
 ## 6. Thread-safety invariants (each one gets a test)
 
@@ -376,7 +409,7 @@ On time, that is `next_due += period`: adding the period to the previous due tim
 |---|---|---|
 | 1 | Exactly four threads after startup (`main/consumer`, `scheduler`, `publisher`, `control-http`), however many drones exist | `threading.enumerate()` before and after spawning 200 drones |
 | 2 | Only the publisher thread calls `basic_publish` | Publisher asserts `current_thread() is self._thread`. A fake channel records thread IDs |
-| 3 | Each pika connection is used only by its owner thread. The one exception is the consumer connection's `add_callback_threadsafe(stop_consuming)` | Consumer and publisher each build their own `BlockingConnection` inside `run()` |
+| 3 | Each pika connection is used only by its owner thread, with no exception: the consumer polls `process_data_events(time_limit=0.2)` while the stop event is clear, and the signal handler only sets the event (PR #15) | Consumer and publisher each build their own `BlockingConnection` inside `run()` |
 | 4 | All drone, job, fault, epoch, delayed-reply and dedup state is read and written only under `JobsBoard._lock`. Reads return deep copies (`World.get` returns a private copy; emitted payloads are deep copies). Transactions are copy-on-write: staged changes apply only when the block ends normally. A public board call from the thread holding the lock raises `RuntimeError` | `transaction()` and every public method. Tests: mutating a snapshot leaves the board unchanged; a raising transaction or `discard()` applies nothing; re-entry raises instead of hanging |
 | 5 | At most one job per `(drone_id, type)` | 16 threads × 1 000 random upserts and removes; then `len(jobs) == len(set(keys))` |
 | 6 | Nothing blocks under the board lock: no `outbox.put`, sleep, `Event.wait`, network or file I/O, logging, or codec call. Job errors and handler exceptions are carried out of the lock (`DueResult.errors`, the NACK placeholder) and logged after it | Handlers return replies and have no outbox or channel in their signature. A test spies on `time.sleep`. An instrumented lock asserts a p99 hold time under 5 ms during a 200-drone load |
@@ -388,18 +421,18 @@ On time, that is `next_due += period`: adding the period to the previous due tim
 | 12 | A bad message never stops the consumer (reaction table in section 3) | Integration: garbage bytes, unknown type and a raising handler, then a valid ARM still gets an ACK |
 | 13 | A job emits at most once per due check and stays on its own period grid: on time `next_due += period` (no drift); after a stall it jumps to the first slot after `now` (`floor((now - next_due) / period) + 1` slots), emits once and keeps its phase: no burst. `dt` is at most 0.5 s; a non-finite `now` raises `ValueError`. A raising tick or render affects only its own job and is reported in `DueResult.errors` | `FakeClock` advanced in 100 ms steps for 10 s gives exactly 10 HEARTBEATs; jumped 10 s gives one, still on the original phase; a job whose render raises leaves other drones' jobs emitting |
 | 14 | `reset(ns)` is atomic and isolated. After it returns, no state with prefix `ns-` remains, other namespaces are untouched, and nothing produced before the reset gets published (epoch) | Concurrency test: reset `gw0` while `gw1` ticks and commands run |
-| 15 | Memory is bounded: outbox `maxsize=1000`, dedup cache ≤256 per drone, delayed replies capped at 1 000 per namespace (overflow → NACK `INTERNAL_ERROR`), message bodies ≤ `MAX_MESSAGE_BYTES` (65,536 bytes), broker queues ≤ 10 000 messages and ≤ 655,360,000 bytes (section 3) | Unit tests |
+| 15 | Memory is bounded: outbox `maxsize=1000`, dedup cache ≤256 per drone, delayed replies capped at 1 000 per namespace (checked before the handler: overflow → NACK `INTERNAL_ERROR`, command not applied), message bodies ≤ `MAX_MESSAGE_BYTES` (65,536 bytes), broker queues ≤ 10 000 messages and ≤ 655,360,000 bytes (section 3) | Unit tests |
 | 16 | Clean shutdown within 10 s (sequence below) | Integration: SIGTERM with messages in flight. Exit 0, everything enqueued before the sentinel is confirmed, unacked commands are requeued |
 
 **Shutdown sequence** (on SIGTERM or SIGINT, or `Simulator.stop()`):
 1. `stop.set()`.
-2. The consumer finishes and acks its current message, then `stop_consuming` runs via `add_callback_threadsafe`.
+2. The consumer finishes and acks its current message; its poll loop (`process_data_events(time_limit=0.2)`) sees the event within 0.2 s and returns.
 3. The consumer channel closes, which requeues prefetched unacked messages.
 4. `ControlServer.shutdown()`, then join the HTTP thread.
 5. Join the scheduler (its `stop.wait` returns `True`).
 6. All producers have stopped, so `outbox.put(SENTINEL)`.
-7. The publisher drains up to the sentinel, waits for confirms, closes its connection and exits. A 5 s deadline applies; messages left after it are logged as dropped.
-8. A final snapshot is written. Exit 0.
+7. The publisher drains up to the sentinel, waits for confirms, closes its connection and exits. A 5 s deadline applies; messages left after it are counted and logged as dropped. The scheduler and publisher are daemon threads joined with bounds, so a publish the broker never confirms cannot keep the process alive past 10 s.
+8. (Snapshot issue, not built yet:) a final snapshot is written. Exit 0.
 
 The idle publisher calls `connection.process_data_events(0)` on each `outbox.get(timeout=0.5)` timeout, so broker heartbeats never expire.
 
@@ -410,18 +443,18 @@ It runs on the fourth thread: Flask app, werkzeug `make_server(threaded=False)`,
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/healthz` (no auth) | — | `200 {status:"ok"}` when the consumer, scheduler and publisher are alive and both connections are open; otherwise `503 {status:"degraded"}`. No other detail |
-| POST | `/drones` | `{namespace, count: 1…100, home?: {lat, lon}, battery_pct?: 0…100 (default 100)}` | `201 {drones: [{drone_id}]}` · 409 if the IDs exist |
-| GET | `/drones?namespace=` | — | `200 {drones: [state]}` |
+| POST | `/drones` | `{namespace, count: 1…100, home?: {lat, lon}, battery_pct?: 0…100 (default 100)}` | `201 {drones: [{drone_id}]}` · 409 if the IDs exist or the namespace is full (999 ids) |
+| GET | `/drones?namespace=` (required; there is no list-all) | — | `200 {drones: [state]}` · 400 without a valid namespace |
 | GET | `/drones/{id}` | — | `200 {drone_id, state, armed, pos, target, battery_pct, cruise_mps, mission, faults, jobs: [{type, period_s, next_due_in_s}]}` · 404 |
 | DELETE | `/drones/{id}` | — | 204 · 404 |
-| POST | `/drones/{id}/faults` | `{kind, duration_s?, count?, delay_s?, factor?, drift_m?}` (per-kind ranges as in section 5) | `201 {fault}` · 400 · 404 |
-| DELETE | `/drones/{id}/faults` | — | 204 |
-| POST | `/reset` | `{namespace}` (required, no wildcard) | `200 {namespace, drones_removed, jobs_removed, epoch}` |
+| POST | `/drones/{id}/faults` | One closed body per kind, discriminated by `kind`: `{kind, <param>, duration_s?}` (per-kind fields and ranges as in section 5) | `201 {fault: {kind, <param>, expires_in_s}}` · 400 · 404 |
+| DELETE | `/drones/{id}/faults` | — | 204 · 404 |
+| POST | `/reset` | `{namespace}` (required, no wildcard) | `200 {namespace, drones_removed, jobs_removed, epoch}` · 503 `reset_unconfirmed` when the in-flight fence times out (section 5) |
 | GET | `/stats` | — | `200 {outbox_depth, published, dropped_stale, encode_errors, unknown_drone_commands, nacks_by_reason, codec_rejects}` |
 
 `/stats` fields: `outbox_depth` (current), `published`, `dropped_stale` (epoch drops), `encode_errors`, `unknown_drone_commands`, `nacks_by_reason` (`{NackReason: int}`), `codec_rejects` (`Codec.stats().rejected_by_reason`). All counters are cumulative integers since process start and are not reset by `/reset`, so tests assert deltas. `unknown_drone_commands` counts commands that decoded cleanly but named a drone that is not spawned (dispatch step 1).
 
-Errors are `{error, detail}` with status 400, 401, 404 or 409. The `detail` never echoes headers.
+Errors are `{error, detail}` with status 400, 401, 404, 409, 413 (body over 16 KiB) or 503. The `detail` never echoes headers or, for an unknown fault kind, the input. `/healthz` requests are access-logged at DEBUG, everything else at INFO. If the control port cannot be bound, the process exits with code 3.
 
 **Auth:**
 - Every route except `/healthz` requires `Authorization: Bearer <SIM_CONTROL_TOKEN>`, compared with `hmac.compare_digest`.
@@ -440,28 +473,30 @@ Errors are `{error, detail}` with status 400, 401, 404 or 409. The `detail` neve
 
 ADR 0007.
 
-- **Package:** `skyhaul-mcp-sim` (deps: `mcp` (Python SDK, FastMCP), `httpx`, `pika`, `skyhaul-contracts`). Script: `skyhaul-mcp-sim`. **Transport: stdio.**
-- **Registration:** `.mcp.json` at the repo root, holding only variable references:
+- **Package:** `skyhaul-mcp-sim` (deps: `mcp==1.30.0` (Python SDK, FastMCP; the 1.x line, because 2.x depends on `httpx2` releases younger than the 14-day minimum age), `httpx`, `pika`, `skyhaul-contracts`). Script: `skyhaul-mcp-sim`. **Transport: stdio.**
+- **Registration:** `.mcp.json` at the repo root, holding only variable references (non-secret ones with defaults, secret ones with empty defaults):
   ```json
   {"mcpServers": {"skyhaul-sim": {
     "command": "uv",
     "args": ["run", "--package", "skyhaul-mcp-sim", "skyhaul-mcp-sim"],
-    "env": {"SIM_CONTROL_URL": "http://127.0.0.1:8100", "SIM_CONTROL_TOKEN": "${SIM_CONTROL_TOKEN}",
-            "RABBITMQ_URL_HOST": "127.0.0.1", "RABBITMQ_USER": "${RABBITMQ_USER}", "RABBITMQ_PASSWORD": "${RABBITMQ_PASSWORD}"}}}}
+    "env": {"SIM_CONTROL_URL": "${SIM_CONTROL_URL:-http://127.0.0.1:8100}", "SIM_CONTROL_TOKEN": "${SIM_CONTROL_TOKEN:-}",
+            "RABBITMQ_HOST": "${RABBITMQ_HOST:-127.0.0.1}", "RABBITMQ_PORT": "${RABBITMQ_PORT:-5672}",
+            "RABBITMQ_USER": "${RABBITMQ_USER:-}", "RABBITMQ_PASSWORD": "${RABBITMQ_PASSWORD:-}"}}}}
   ```
-  The human exports the variables in their shell (for example with direnv). The server never reads `.env`.
+  `RABBITMQ_HOST` and `RABBITMQ_PORT` match the simulator's names. `SIM_CONTROL_URL` must point at 127.0.0.1, so the token is never sent elsewhere. The human starts Claude Code with only the three secrets exported (README, ADR 0007). The server never reads `.env`.
 - **Control tools** go to the control API over httpx with the bearer token.
-- **Command tools** go to RabbitMQ as a ground station: they publish through the Codec and wait on an exclusive reply queue. The control API has no command passthrough.
+- **Command tools** go to RabbitMQ as a ground station: they publish through the Codec and wait on an exclusive reply queue. The control API has no command passthrough. The server declares only `fleet.cmd`, `fleet.telemetry` and its own exclusive auto-delete queue, never `drone_sim.cmd` (section 3), so a command is unroutable when the simulator has never run.
+- Drone ids are checked against the contracts' `DroneId` pattern and namespaces against `^[a-z0-9]{1,16}$` before any call.
 
 | Tool | Arguments | Goes through |
 |---|---|---|
 | `spawn_drones` | `namespace="dev", count=1, home_lat?, home_lon?, battery_pct?` | `POST /drones` |
-| `list_drones` | `namespace?` | `GET /drones` |
+| `list_drones` | `namespace="dev"` | `GET /drones` |
 | `get_drone` | `drone_id` | `GET /drones/{id}` |
-| `inject_fault` | `drone_id, kind, duration_s?, count?, delay_s?, factor?, drift_m?` | `POST /drones/{id}/faults` |
+| `inject_fault` | `drone_id, fault` (a union keyed on `kind`, one model per kind matching the control API's `FaultRequest`) | `POST /drones/{id}/faults` |
 | `clear_faults` | `drone_id` | `DELETE /drones/{id}/faults` |
 | `reset_namespace` | `namespace` (required) | `POST /reset` |
-| `send_command` | `drone_id, type: CommandType, payload: object, timeout_s=5` | AMQP: `Codec.new` + `Codec.encode` (a schema-breaking payload fails here and nothing is published), publish on `fleet.cmd` (`mandatory=True`), wait for the ACK or NACK with a matching `command_msg_id`. Returns the reply or `timeout` |
+| `send_command` | `drone_id, type: CommandType, payload?: object, timeout_s=5 (≤60)` | AMQP: `Codec.new` + `Codec.encode` (a schema-breaking payload fails here and nothing is published), publish on `fleet.cmd` (`mandatory=True`; unroutable is an error), wait for the ACK or NACK with a matching `command_msg_id`. Returns `{result: ACK or NACK, command, reply}`, or `result: no_reply` with an explanation (link loss, a REPLY_DELAY longer than the wait, an unknown drone, or a stopped simulator). The 60 s bound lets a 30 s REPLY_DELAY fit |
 | `read_telemetry` | `drone_id, types?: list[TelemetryType], seconds=3 (≤30), max=50` | AMQP: exclusive queue bound to `drone_binding(id)`. Returns the decoded messages |
 
 Tool results are returned as JSON data. Errors map to MCP tool errors and never include the token or the RabbitMQ password.
@@ -519,7 +554,7 @@ Approved by the human on 2026-11-23.
 | 3 | Versioning style | **Closed envelope, tolerant payloads** (ADR 0005) |
 | 4 | Case of type and enum values | **Uppercase** enum values, also as the last word of a routing key (`drone.gw0-d001.ARM` is the form) |
 | 5 | Command for an unknown drone | **No reply**, logged, counted in `/stats` as `unknown_drone_commands` |
-| 6 | How secrets reach the MCP server | **`.mcp.json` `${VAR}` expansion**; the human exports the variables (e.g. direnv). Secrets stay env-only |
+| 6 | How secrets reach the MCP server | **`.mcp.json` `${VAR}` expansion**; the human starts Claude Code with only `SIM_CONTROL_TOKEN`, `RABBITMQ_USER` and `RABBITMQ_PASSWORD` exported, not all of `.env` (which would also export `ANTHROPIC_API_KEY`). Secrets stay env-only |
 | 7 | Where the simulator runs | **Compose `test` profile only**, plus `make sim` for local demos |
 | 8 | Command queue type | **Quorum** (`drone_sim.cmd`): delivery-limit poison protection and single active consumer (ADR 0006) |
 | 9 | Control API scope | Split into **#9** (auth, state, reset) and **#10** (fault injection) |
@@ -528,8 +563,9 @@ Approved by the human on 2026-11-23.
 | 12 | Link loss vs dedup | **Link loss is checked before the dedup cache**, so nothing is published during link loss, even for a duplicate `msg_id`. The injected-NACK gate runs after dedup so one `msg_id` always gets one answer (section 5, dispatch) |
 | 13 | Scheduler due-time formula and transactions (from the jobs-board implementation, PR #12) | **`next_due += period`; after a stall, the first slot on the job's own grid after `now`**: no drift, no burst, each job keeps its phase. **Copy-on-write transactions**: a failed handler leaves the board unchanged. Nested locking raises instead of hanging. A raising tick or render is isolated per job (section 5, ADR 0003) |
 | 14 | Queue length bounds (security review) | `drone_sim.cmd`: `x-max-length=10000`, `x-overflow=reject-publish`; `fleet.dead`: `x-max-length=10000`, `x-overflow=drop-head`. Both also get `x-max-length-bytes=655360000` (10,000 × 64 KiB), because the message count alone does not bound bytes for a publisher that skips the Codec (Grok security review on PR #14). Fixed in v1 because queue arguments cannot change later (section 3, ADR 0006) |
-| 15 | Who gets a NACK `UNSUPPORTED_VERSION` (security review) | Only the drone named by the routing key, and only when it equals `hint.drone_id`; otherwise the message is dead-lettered (section 4) |
+| 15 | Who gets a NACK `UNSUPPORTED_VERSION` (security review) | Only the drone named by the routing key, and only when it equals `hint.drone_id` and a readable `hint.type` equals the routing key's type (the type check added in PR #15); otherwise the message is dead-lettered (section 4) |
 | 16 | Lone surrogates (QA review) | **Rejected at parse** (I-JSON), not accepted-then-unencodable, so every decoded message can be re-encoded (section 1) |
+| 17 | Moves at critical battery (product owner, PR #17) | **At or below `CRITICAL_BATTERY_PCT` (10 %) a drone only returns home or lands.** TAKEOFF, GOTO, START_MISSION and SET_SPEED get NACK `BATTERY_TOO_LOW` (section 2, ADR 0008) |
 
 Accepted risks (no decision needed, noted for reviewers):
 - **ACK vs telemetry order:** replies and telemetry are separate streams. Telemetry that reflects a command can reach the broker before its ACK. POSITION carries the command's `correlation_id`, so the M2 API must not assume the ACK comes first.
@@ -537,6 +573,8 @@ Accepted risks (no decision needed, noted for reviewers):
 - **Codegen output churn:** generated output can change between generator versions. Both generators are pinned exactly, and the formatter run on generated code uses a config pinned in `generate.py`. Dependabot bumps then show as regenerated-code diffs.
 - **Codec stricter than JSON Schema in two corners:** a whole-number float such as `3.0` is an `integer` for JSON Schema but not for the Codec, and the Codec rejects impossible calendar dates. Our encoders never produce either; the golden examples do not rely on them. (The wire-level JSON rules, such as no infinities and no lone surrogates, apply to both: the contract-test oracle parses with the same rules.)
 - **Empty payloads accept any shape** (section 1): a consequence of tolerant payloads, not a bug.
+- **Delete without an epoch bump** (PR #18): messages already in the outbox for a deleted drone can still go out within milliseconds. Namespace reset is the isolation tool; delete is not.
+- **Long consumer stalls** (PR #15): if the consumer is blocked on a full outbox for more than about 2 × the 30 s heartbeat, the broker can drop its connection and redeliver. The dedup cache then replays the cached replies, so no command is applied twice, but replies can be duplicated (at-least-once).
 
 ## 11. Carried over to later issues
 
@@ -545,11 +583,12 @@ Rules this design fixes but that other issues enforce. Reviewers of those PRs ch
 | Rule | Enforced in | Where defined |
 |---|---|---|
 | The routing key's `<id>` and `<type>` must match the envelope; a mismatch is dead-lettered | Consumer (#7) | Section 2 |
-| NACK `UNSUPPORTED_VERSION` only when the routing key's `<id>` equals `hint.drone_id`; otherwise reject to the DLX | Consumer (#7) | Section 4 |
+| NACK `UNSUPPORTED_VERSION` only when the routing key's `<id>` equals `hint.drone_id` and a readable `hint.type` equals the routing key's `<type>`; otherwise reject to the DLX | Consumer (#7) | Section 4 |
 | NACK `detail` comes from `DecodeError.detail` (≤ 256 characters, no input values); the unsupported `version` is never echoed | Consumer (#7) | Section 4 |
 | Command senders use publisher confirms and treat a nack (full `drone_sim.cmd`) as "not sent" | Test command client (#7), MCP `send_command` (#11), fleet API (M2) | Section 3, ADR 0006 |
-| Command senders call `declare_topology` before publishing | Same as above | Section 3 |
-| `dispatch` order: unknown drone, link loss, dedup, injected NACK, handler, cache, reply delay | Simulator (#9, #10) | Section 5 |
+| Command senders call `declare_topology` before publishing | Test command client (#7), fleet API (M2). Not the MCP server, by design (section 3) | Section 3 |
+| `dispatch` order: unknown drone, link loss, dedup, delay cap, injected NACK, handler, cache, reply delay | Simulator (#9, #10) | Section 5 |
+| Every `Outgoing` is stamped at the lock boundary; `JobsBoard.reset` clears faults and delayed replies, and every delayed reply is stamped | Simulator (#9, #10) | Section 5, ADR 0009 |
 | One `dispatch` per board transaction | Consumer (#7) | Section 5 |
 - **Single-threaded control API:** one slow request blocks the next. Acceptable for a test surface.
 - **Dedup window:** the cache holds the last 256 commands per drone. A duplicate older than that is applied again.

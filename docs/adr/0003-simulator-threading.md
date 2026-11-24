@@ -1,6 +1,6 @@
 # 0003 · Simulator threading model
 
-Status: accepted · 2026-11-23 · amended 2026-11-23
+Status: accepted · 2026-11-23 · amended 2026-11-23, 2026-11-24
 
 ## Context
 
@@ -51,3 +51,12 @@ Settled while wiring the threads to RabbitMQ (#7, PR #15).
 - **Two bounded waits, never while handling a message.** The 0.2 s poll above is the broker waiting for deliveries, not the consumer sleeping. After a lost connection, the consumer waits 0.5 s on the stop event before reconnecting, so a channel error right after connecting can't become a tight loop. Neither wait holds the board lock or delays a message already received.
 - **The scheduler and publisher are daemon threads**, joined by the main thread with bounds. A publish that a blocked broker never confirms must not keep the process alive past the 10 s shutdown limit. Anything still unsent when the 5 s drain ends is counted and logged as dropped, so nothing is lost silently.
 - **A broker nack is retried a bounded number of times.** The publisher offers one message at most 5 times (backing off 0.05 s, doubling, capped at 1 s; the stop event ends the wait early). After that it drops the message, counts and logs it, and moves on, so one message the broker keeps refusing can't pin the publisher, fill the outbox and stall the consumer.
+
+## Amendment · 2026-11-24 · drones on the board, job completion, spawn
+
+Settled while building drone behavior and the control API (#8, PR #17; #9, PR #18).
+
+- **The board holds the drones, not just their ids.** Drone state (position, battery, mission, faults, dedup cache) lives on the board next to the jobs, behind the same lock. `World.drone(id)` returns a staged copy that is written back only on commit (copy-on-write, as for jobs); public reads (`drone`, `drones`) return copies.
+- **Ticks and renders see the drone and the job:** `tick(drone, job, dt)` and `render(drone, job, now)`. The job keeps its values and `correlation_id`; `now` makes HEARTBEAT `uptime_s` exact, where summing the capped `dt` would undercount.
+- **A job can finish.** `Job.done(drone)` is checked after the tick; once true, the board emits one final message in that same `due()` call (persistent if `Job.final_persistent`) and removes the job: the final POSITION on touchdown, the final MISSION_STATUS on COMPLETED or ABORTED.
+- **Spawn takes a factory:** `board.spawn(namespace, count, make)`. `make(drone_id)` builds a drone and its jobs in memory under the lock, so the board does not import the behaviors (no import cycle). Spawn is all or nothing.
