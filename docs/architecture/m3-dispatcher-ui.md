@@ -83,7 +83,7 @@ web/src/
 
 **Decision: Leaflet with the canvas renderer.** Reason: 200 markers is far below where WebGL pays off, and real DOM/canvas keeps both test layers simple. This changes the blueprint's MapLibre choice.
 
-- **Tiles:** never `tile.openstreetmap.org` from dev, CI or demos (its tile usage policy forbids app and heavy use). URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`; dev uses a free provider with a fair-use policy, picked in the slice issue (Q4). **Tests load no network tiles:** Vitest has none, Playwright routes tile requests to a blank PNG.
+- **Tiles:** never `tile.openstreetmap.org` from dev, CI or demos (its tile usage policy forbids app and heavy use). URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`; decided: CARTO basemaps (`light_all`, free, no key, attribution "© OpenStreetMap contributors © CARTO"), set in `web/.env.example`. A public demo (M7) needs a provider with a domain-locked key and a spend cap. **Tests load no network tiles:** Vitest has none, Playwright routes tile requests to a blank PNG.
 - Markers are coloured by `flight_state` and `link`. Selecting a drone opens a side panel, not a Leaflet HTML popup.
 
 ## 6. Role-aware UI
@@ -115,15 +115,15 @@ web/src/
 
 ## 10. Contract gaps and open questions (backend follow-ups)
 
-- **Q1 Refresh:** no refresh endpoint or cookie, despite ADR 0011. Without it, reload means re-login. Needs a backend issue (httpOnly `SameSite=Strict` refresh cookie plus CSRF, as ADR 0011 planned) and its own ADR when designed.
+- **Q1 Refresh (decided: accept the hard logout for M3):** no refresh endpoint or cookie, despite ADR 0011. Without it, reload means re-login. Needs a backend issue (httpOnly `SameSite=Strict` refresh cookie plus CSRF, as ADR 0011 planned) and its own ADR when designed.
 - **Q2 Mission and Alert have no `updated_at` or `version`,** so a late `mission.updated` or `alert.updated` cannot be told from a newer one. Interim: order by lifecycle rank (and `acknowledged_at`/`cleared_at` for alerts). Fix: a monotonic `version` field.
 - **Q3 Refetch cost:** `GET /drones` caps at 200 per page, so a refetch past 200 drones is several requests. Fine for M3; revisit in M4.
-- **Q4 Tile provider** for dev and demos, and whether it needs a key (a public, domain-locked key at most; no secret in the bundle).
+- **Q4 Tile provider (decided):** CARTO, no key.
 - **Q5 Logout is client-side only** (drop the token). No revocation, so a stolen token lives up to 15 minutes. Acceptable while Q1 is open.
 
 ## 11. Slice plan
 
-1. **Thin slice (first issue): login + live map.** `api/client.ts` with token middleware and 401; `stores/auth.ts`, `stores/fleet.ts`, `stores/connection.ts`; `realtime/socket.ts` with `drone.state`, reconnect refetch, `ts` staleness and `token_expired` logout; `LoginView`, `FleetView` with `FleetMap` and `ConnectionBadge`; router guard; Vite proxy; `vue/no-v-html`; the must-have unit tests; one Playwright path.
+1. **Thin slice (first issue): login + live map + `make seed`.** `make seed` creates a local admin (via `flask skyhaul bootstrap`), registers a few drones (`POST /drones`) and spawns them in the simulator, so the map has moving drones right after `make up` + `make sim`. Test profile only; the password is generated and printed once, never stored in git. `api/client.ts` with token middleware and 401; `stores/auth.ts`, `stores/fleet.ts`, `stores/connection.ts`; `realtime/socket.ts` with `drone.state`, reconnect refetch, `ts` staleness and `token_expired` logout; `LoginView`, `FleetView` with `FleetMap` and `ConnectionBadge`; router guard; Vite proxy; `vue/no-v-html`; the must-have unit tests; one Playwright path.
 2. Drone list and detail panel (telemetry history), role-aware.
 3. Missions: create, start, abort, `mission.updated`.
 4. Alerts: list, ack, `alert.raised` / `alert.updated`.

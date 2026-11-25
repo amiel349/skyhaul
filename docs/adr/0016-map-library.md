@@ -9,7 +9,7 @@ The fleet view shows about 200 drones, each updating one to two times per second
 ## Decision
 
 - Leaflet 1.9 with the canvas renderer (`circleMarker`, `setLatLng` on update) and raster XYZ tiles.
-- Tile URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`. Never `tile.openstreetmap.org` (its usage policy forbids app and heavy use). Tests load no network tiles; Playwright routes tile requests to a blank image.
+- Dev and demo tiles: CARTO `light_all` (free, no key). Tile URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`. Never `tile.openstreetmap.org` (its usage policy forbids app and heavy use). Tests load no network tiles; Playwright routes tile requests to a blank image.
 
 ## Consequences
 
