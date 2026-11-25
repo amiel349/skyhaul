@@ -5,7 +5,7 @@ Local test profile only. Needs `make up` and `make sim` running. Idempotent: a s
 creates nothing new. Secrets stay out of argv, logs and git:
 
 - The admin is the dev admin that `make up` creates from DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD in
-  `.env`. Its password is read through `docker compose config`, in memory only.
+  the git-ignored `.env.dev`. Its password is read through `docker compose config`, in memory only.
 - The simulator control token is read inside the drone-sim container and never leaves it.
 - `.env` is never parsed here; docker compose reads it, as in the Makefile.
 """
@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE = ["docker", "compose", "--env-file", ".env", "-f", "deploy/compose.yaml"]
+COMPOSE = ["docker", "compose", "--env-file", ".env"]
+if os.environ.get("SKYHAUL_ENV", "dev") == "dev" and (ROOT / ".env.dev").exists():
+    COMPOSE += ["--env-file", ".env.dev"]  # git-ignored local overrides, as in the Makefile
+COMPOSE += ["-f", "deploy/compose.yaml"]
 API = os.environ.get("SKYHAUL_API_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/v1"
 NAMESPACE = "dev"
 DRONES = 3
@@ -87,7 +90,9 @@ def dev_admin() -> tuple[str, str]:
     env = json.loads(done.stdout)["services"]["dev-admin"]["environment"]
     email, password = env.get("DEV_ADMIN_EMAIL", ""), env.get("DEV_ADMIN_PASSWORD", "")
     if not email or not password:
-        fail("DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD are empty in .env; set them and run `make up`")
+        fail(
+            "DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD are empty; set them in .env.dev and run `make up`"
+        )
     return email, password
 
 

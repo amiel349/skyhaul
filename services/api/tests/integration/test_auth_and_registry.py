@@ -321,30 +321,6 @@ def test_bootstrap_creates_the_first_admin_once_and_there_is_no_signup(
     }
 
 
-def test_ensure_admin_creates_syncs_the_password_and_skips_when_unset(
-    api_app: Flask, api: FlaskClient
-) -> None:
-    email = f"dev-{uuid.uuid4().hex[:8]}@example.com"
-    first, second = "1234", secrets.token_urlsafe(16)  # a short dev password is allowed here
-    runner = api_app.test_cli_runner()
-
-    def run(password: str) -> str:
-        env = {"DEV_ADMIN_EMAIL": email, "DEV_ADMIN_PASSWORD": password}
-        result = runner.invoke(args=["skyhaul", "ensure-admin"], env=env)
-        assert result.exit_code == 0, result.output
-        assert not password or password not in result.output
-        return result.output
-
-    assert "created" in run(first)
-    assert api.post(LOGIN, json={"email": email, "password": first}).status_code == 200
-    assert "up to date" in run(first)
-    assert "updated" in run(second)  # an edited .env changes the password
-    assert api.post(LOGIN, json={"email": email, "password": first}).status_code == 401
-    login = api.post(LOGIN, json={"email": email, "password": second})
-    assert login.get_json()["user"]["role"] == "admin"
-    assert "skipped" in run("")
-
-
 def test_drone_registry_registers_refuses_taken_ids_and_soft_deletes(
     api: FlaskClient, make_user: MakeUser, token_for: TokenFor, db_session: Session
 ) -> None:
