@@ -25,7 +25,7 @@ from skyhaul_api.audit.service import record
 from skyhaul_api.auth.passwords import hash_password, verify_password
 from skyhaul_api.database import SESSIONS_KEY
 from skyhaul_api.openapi import export_spec, spec_differences
-from skyhaul_api.users.schemas import UserCreateSchema
+from skyhaul_api.users.schemas import NEW_PASSWORD_MIN, PASSWORD_MAX, UserCreateSchema
 
 DEFAULT_CONTRACT = Path("contracts/openapi/fleet-api.v1.json")
 
@@ -105,6 +105,10 @@ def ensure_admin_command() -> None:
 
     Creates it, or syncs the password and role when `.env` changed. Does nothing when the
     password is empty. Never prints the password.
+
+    Unlike `bootstrap` and `POST /users` it accepts a short password (like `1234`), so a local
+    login is easy to type. That is only safe because this runs from the local `dev` compose
+    profile. Never wire it into a deploy.
     """
     email = os.environ.get("DEV_ADMIN_EMAIL", "").strip()
     password = os.environ.get("DEV_ADMIN_PASSWORD", "")
@@ -112,12 +116,14 @@ def ensure_admin_command() -> None:
         click.echo("no dev admin configured (DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD); skipped")
         return
     try:
-        body = UserCreateSchema().load({"email": email, "password": password, "role": "admin"})
-    except ValidationError as exc:
-        fields = ", ".join(sorted(exc.messages_dict))
-        raise click.ClickException(
-            f"invalid {fields} (the password needs 12 to 1024 characters)"
-        ) from None
+        # The schema checks the email; a stand-in password of the minimum length passes its rule.
+        body = UserCreateSchema().load(
+            {"email": email, "password": "x" * NEW_PASSWORD_MIN, "role": Role.ADMIN.value}
+        )
+    except ValidationError:
+        raise click.ClickException("DEV_ADMIN_EMAIL is not a valid email address") from None
+    if len(password) > PASSWORD_MAX:
+        raise click.ClickException(f"DEV_ADMIN_PASSWORD is longer than {PASSWORD_MAX} characters")
     sessions: sessionmaker[Session] | None = current_app.extensions.get(SESSIONS_KEY)
     if sessions is None:
         raise click.ClickException("this app has no database; use skyhaul_api:create_app")

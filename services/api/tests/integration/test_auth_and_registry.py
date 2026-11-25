@@ -325,7 +325,7 @@ def test_ensure_admin_creates_syncs_the_password_and_skips_when_unset(
     api_app: Flask, api: FlaskClient
 ) -> None:
     email = f"dev-{uuid.uuid4().hex[:8]}@example.com"
-    first, second = secrets.token_urlsafe(16), secrets.token_urlsafe(16)
+    first, second = "1234", secrets.token_urlsafe(16)  # a short dev password is allowed here
     runner = api_app.test_cli_runner()
 
     def run(password: str) -> str:
