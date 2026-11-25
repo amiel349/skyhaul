@@ -83,13 +83,12 @@ def send_command(drone_id: str) -> Response:
     key = _idempotency_key()
     user_id = principal().user.id
     session = db()
-    if key is not None and (existing := service.find_by_key(session, user_id, key)) is not None:
-        return _accepted(service.replay(existing, drone.id, body["type"]))
-
     codec: Codec = current_app.extensions[CODEC_KEY]
     message, wire = service.build_message(
         codec, body["type"], drone.id, body["payload"], request_id()
     )
+    if key is not None and (existing := service.find_by_key(session, user_id, key)) is not None:
+        return _accepted(service.replay(existing, message))
     try:
         command = service.store(session, message, user_id=user_id, idempotency_key=key)
     except IntegrityError as exc:
@@ -100,7 +99,7 @@ def send_command(drone_id: str) -> Response:
         existing = service.find_by_key(session, user_id, key)
         if existing is None:
             raise
-        return _accepted(service.replay(existing, drone.id, body["type"]))
+        return _accepted(service.replay(existing, message))
 
     publisher: CommandPublisher = current_app.extensions[PUBLISHER_KEY]
     outcome = service.publish(publisher, message, wire)

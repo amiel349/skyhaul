@@ -79,12 +79,23 @@ def find_by_key(session: Session, user_id: uuid.UUID, key: str) -> Command | Non
     ).first()
 
 
-def replay(existing: Command, drone_id: str, type_name: str) -> Command:
-    """The original command of an Idempotency-Key replay. The same key for another drone
-    or type is a client bug: 409."""
-    if existing.drone_id != drone_id or existing.type != type_name:
+def replay(existing: Command, message: Message[BaseModel]) -> Command:
+    """The original command of an Idempotency-Key replay. The same key for another drone,
+    type or payload is a client bug: 409. Payloads are compared after Codec validation, so
+    ``40`` and ``40.0`` are the same altitude."""
+    same = (
+        existing.drone_id == message.drone_id
+        and existing.type == message.type.value
+        and existing.payload == stored_payload(message)
+    )
+    if not same:
         raise ApiError(409, "idempotency_key_reused", "The key was used for another command.")
     return existing
+
+
+def stored_payload(message: Message[BaseModel]) -> dict[str, Any]:
+    payload: dict[str, Any] = message.payload.model_dump(mode="json", exclude_unset=True)
+    return payload
 
 
 def store(
@@ -99,7 +110,7 @@ def store(
         id=uuid.UUID(message.msg_id),
         drone_id=message.drone_id,
         type=message.type.value,
-        payload=message.payload.model_dump(mode="json", exclude_unset=True),
+        payload=stored_payload(message),
         correlation_id=uuid.UUID(str(message.correlation_id)),
         status=CommandStatus.PENDING,
         requested_by=user_id,

@@ -262,9 +262,16 @@ def test_the_same_idempotency_key_returns_the_original_and_publishes_nothing(
     second = send(api, dispatcher, OTHER, {"type": "ARM"}, **{"Idempotency-Key": key})
     without_key = [send(api, dispatcher, OTHER, {"type": "ARM"}) for _ in range(2)]
 
+    goto_key = secrets.token_hex(8)
+    goto = {"type": "GOTO", "payload": {"lat": 32.0, "lon": 34.8, "altitude_m": 30}}
+    elsewhere = {"type": "GOTO", "payload": {"lat": 32.1, "lon": 34.8, "altitude_m": 30}}
+    assert send(api, dispatcher, SILENT, goto, **{"Idempotency-Key": goto_key}).status_code == 202
+    reused = send(api, dispatcher, SILENT, elsewhere, **{"Idempotency-Key": goto_key})
+    assert (reused.status_code, reused.json["error"]) == (409, "idempotency_key_reused")
+
     assert (first.status_code, second.status_code) == (202, 202)
     assert second.json["id"] == first.json["id"]
-    assert len(submitted) == 3  # the first keyed one and the two without a key
+    assert len(submitted) == 4  # the first keyed one, two without a key, the first GOTO
     assert len({r.json["id"] for r in without_key}) == 2
     keyed = select(func.count()).select_from(Command).where(Command.idempotency_key == key)
     assert session.scalar(keyed) == 1

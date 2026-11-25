@@ -4,6 +4,7 @@ publisher thread touches the channel; Codec errors become 422 field paths withou
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -22,14 +23,19 @@ codec = Codec()
 DRONE = "u-d001"
 
 
+HANG = "hang"
+"""A ``basic_publish`` script step: the broker never confirms (waits for the deadline timer)."""
+
+
 class FakeChannel:
     """Records every call with the calling thread; ``basic_publish`` follows a script."""
 
-    def __init__(self, script: list[BaseException | None]) -> None:
+    def __init__(self, script: list[Any]) -> None:
         self.script = script
         self.calls: list[tuple[str, str]] = []
         self.published: list[dict[str, Any]] = []
         self.is_open = True
+        self.connection: FakeConnection | None = None
 
     def _record(self, name: str) -> None:
         self.calls.append((name, threading.current_thread().name))
@@ -40,7 +46,13 @@ class FakeChannel:
     def basic_publish(self, exchange: str, routing_key: str, body: bytes, **kwargs: Any) -> None:
         self._record("basic_publish")
         self.published.append({"exchange": exchange, "routing_key": routing_key, **kwargs})
+        if self.connection is None or not self.connection.is_open:
+            raise AMQPConnectionError("aborted")
         step = self.script.pop(0) if self.script else None
+        if step == HANG:
+            # Like pika's confirm wait: it polls the I/O loop, which runs the due timers.
+            self.connection.wait_for_timer()
+            raise AMQPConnectionError("stream lost")
         if step is not None:
             raise step
 
@@ -48,6 +60,14 @@ class FakeChannel:
 class FakeConnection:
     def __init__(self, channel: FakeChannel) -> None:
         self._channel, self.is_open = channel, True
+        channel.connection = self
+        self.timer: tuple[float, Callable[[], None]] | None = None
+
+    def wait_for_timer(self) -> None:
+        assert self.timer is not None, "no deadline timer armed during the confirm wait"
+        delay, on_expire = self.timer
+        time.sleep(max(delay, 0.0))
+        on_expire()
 
     def channel(self) -> FakeChannel:
         self._channel._record("channel")
@@ -60,12 +80,27 @@ class FakeConnection:
         self.is_open = False
 
 
+def fake_timer(
+    connection: FakeConnection, delay_s: float, on_expire: Callable[[], None]
+) -> Callable[[], None]:
+    connection.timer = (delay_s, on_expire)
+
+    def cancel() -> None:
+        connection.timer = None
+
+    return cancel
+
+
+def fake_abort(connection: FakeConnection) -> None:
+    connection.is_open = False
+
+
 def takeoff() -> tuple[Any, bytes]:
     return build_message(codec, "TAKEOFF", DRONE, {"altitude_m": 30}, str(uuid.uuid4()))
 
 
 def run_one(connect: Callable[[], Any], **kwargs: Any) -> Outcome:
-    publisher = CommandPublisher(connect, **kwargs)
+    publisher = CommandPublisher(connect, timer=fake_timer, abort=fake_abort, **kwargs)
     publisher.start()
     try:
         return publisher.submit(*takeoff()).result(timeout=5)
@@ -145,3 +180,29 @@ def test_a_valid_command_gets_a_fresh_msg_id_and_the_request_correlation_id() ->
     assert first.msg_id != second.msg_id
     assert first.correlation_id == correlation_id
     assert codec.decode(body) == first
+
+
+def test_a_broker_that_never_confirms_resolves_expired_within_the_deadline_and_sends_no_more() -> (
+    None
+):
+    channel = FakeChannel([HANG])
+    connections: list[FakeConnection] = []
+
+    def connect() -> FakeConnection:
+        connections.append(FakeConnection(channel))
+        return connections[-1]
+
+    publisher = CommandPublisher(connect, deadline_s=0.3, timer=fake_timer, abort=fake_abort)
+    publisher.start()
+    try:
+        started = time.monotonic()
+        outcome = publisher.submit(*takeoff()).result(timeout=publisher.deadline_s + 1)
+        elapsed = time.monotonic() - started
+        time.sleep(0.6)  # past the deadline: no retry, no reconnect-and-resend
+    finally:
+        publisher.stop()
+
+    assert outcome is Outcome.EXPIRED  # the service maps it to FAILED and 503
+    assert elapsed < publisher.deadline_s + 0.5
+    assert len(channel.published) == 1
+    assert not connections[0].is_open  # aborted: no confirm can arrive afterwards

@@ -8,8 +8,10 @@ always resolves the future with an ``Outcome``:
 - ``NACKED``: the broker refused it ``NACK_ATTEMPTS`` times (same bounded retry as M1).
 - ``UNROUTABLE``: no queue is bound for the routing key (returned by ``mandatory``).
 - ``UNREACHABLE``: no connection could be opened or it broke.
-- ``EXPIRED``: the deadline (5 s after submit) passed before a confirm; a message is never
-  sent once its deadline has passed.
+- ``EXPIRED``: the deadline (5 s after submit) passed before a confirm. The wait for the
+  confirm is bounded by the deadline: when it passes, the connection is aborted, so no
+  confirm can arrive later and nothing more is published for that command. A message is
+  never sent once its deadline has passed.
 - ``STOPPED``: the publisher is shutting down.
 
 The request thread therefore never decides about a publish whose outcome it does not know.
@@ -48,6 +50,27 @@ CONNECT_TIMEOUT_S: Final = 2.0
 
 type Connect = Callable[[], Any]
 """Opens a new ``pika.BlockingConnection`` (or a fake in tests)."""
+
+type DeadlineTimer = Callable[[Any, float, Callable[[], None]], Callable[[], None]]
+"""``timer(connection, delay_s, on_expire)`` arms a timer that fires inside the connection's
+I/O loop (so also while ``basic_publish`` waits for its confirm); returns a cancel function."""
+
+
+def pika_deadline_timer(
+    connection: Any, delay_s: float, on_expire: Callable[[], None]
+) -> Callable[[], None]:
+    """``BlockingConnection.call_later`` only fires in ``process_data_events``, not during a
+    confirm wait, so this arms the timer on the underlying I/O loop, which the confirm wait
+    polls. pika has no public API for it; this is the only place that reaches inside."""
+    ioloop = connection._impl.ioloop
+    handle = ioloop.call_later(delay_s, on_expire)
+    return lambda: ioloop.remove_timeout(handle)
+
+
+def pika_abort(connection: Any) -> None:
+    """Drop the socket without the close handshake (the broker may not answer). The pending
+    confirm wait then raises a connection error."""
+    connection._impl._adapter_disconnect_stream()
 
 
 class Outcome(StrEnum):
@@ -102,8 +125,13 @@ class CommandPublisher:
         queue_size: int = QUEUE_SIZE,
         deadline_s: float = DEADLINE_S,
         clock: Callable[[], float] = time.monotonic,
+        timer: DeadlineTimer = pika_deadline_timer,
+        abort: Callable[[Any], None] = pika_abort,
     ) -> None:
         self.deadline_s = deadline_s
+        self._timer = timer
+        self._abort = abort
+        self._expired = False
         self._connect = connect
         self._clock = clock
         self._queue: queue.Queue[Outgoing | None] = queue.Queue(queue_size)
@@ -187,6 +215,8 @@ class CommandPublisher:
             channel = self._ensure_channel()
             if channel is None:
                 return Outcome.UNREACHABLE
+            self._expired = False
+            cancel = self._timer(self._connection, item.deadline - self._clock(), self._expire)
             try:
                 channel.basic_publish(
                     COMMAND_EXCHANGE, routing_key, item.body, properties=properties, mandatory=True
@@ -201,10 +231,23 @@ class CommandPublisher:
                 backoff = min(NACK_BACKOFF_S * 2 ** (nacks - 1), 1.0)
                 self._stop.wait(min(backoff, max(item.deadline - self._clock(), 0.0)))
             except (AMQPConnectionError, AMQPChannelError) as exc:
+                if self._expired:  # our own abort at the deadline: no late confirm can come
+                    self._close()
+                    return Outcome.EXPIRED
                 # The same msg_id may be sent again; the drone dedups by msg_id (ADR 0006).
                 log.warning("publisher connection lost (%s)", type(exc).__name__)
                 self._close()
                 self._reconnect_at = 0.0
+            finally:
+                if not self._expired:
+                    with contextlib.suppress(Exception):  # the loop may be gone already
+                        cancel()
+
+    def _expire(self) -> None:
+        """Runs on the publisher thread, inside pika's I/O loop, when a confirm is late."""
+        self._expired = True
+        log.warning("broker confirm not received before the deadline; aborting the connection")
+        self._abort(self._connection)
 
     def _ensure_channel(self) -> Any:
         if self._channel is not None and self._channel.is_open:
