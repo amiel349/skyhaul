@@ -1,4 +1,4 @@
-"""Keyset pagination: newest first by ``(ts, id)``, ``?limit=`` and an opaque ``?cursor=``.
+"""Keyset pagination: newest (or oldest) first by ``(ts, id)``, ``?limit=``, opaque ``?cursor=``.
 
 The cursor is base64url of ``[ts, id]`` of the last row of the previous page. Responses are
 ``{items, next_cursor}``; ``next_cursor`` is ``None`` on the last page.
@@ -53,17 +53,26 @@ def paginate[T](
     id_type: Callable[[str], Any],
     limit: int,
     cursor: str | None,
+    oldest_first: bool = False,
 ) -> Page[T]:
-    """One page of ``statement``'s rows, newest first. ``id_type`` parses the cursor's id
-    (``uuid.UUID``, ``int`` or ``str``)."""
+    """One page of ``statement``'s rows, newest first (or oldest first). ``id_type`` parses
+    the cursor's id (``uuid.UUID``, ``int`` or ``str``)."""
     if cursor is not None:
         ts, raw_id = decode_cursor(cursor)
         try:
             row_id = id_type(raw_id)
         except ValueError:
             raise ApiError(400, "bad_cursor", "The cursor is not valid.") from None
-        statement = statement.where(or_(ts_column < ts, and_(ts_column == ts, id_column < row_id)))
-    statement = statement.order_by(ts_column.desc(), id_column.desc()).limit(limit + 1)
+        if oldest_first:
+            after = or_(ts_column > ts, and_(ts_column == ts, id_column > row_id))
+        else:
+            after = or_(ts_column < ts, and_(ts_column == ts, id_column < row_id))
+        statement = statement.where(after)
+    if oldest_first:
+        statement = statement.order_by(ts_column.asc(), id_column.asc())
+    else:
+        statement = statement.order_by(ts_column.desc(), id_column.desc())
+    statement = statement.limit(limit + 1)
     rows = list(session.scalars(statement))
     items = rows[:limit]
     if len(rows) <= limit:

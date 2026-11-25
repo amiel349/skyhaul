@@ -135,8 +135,8 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
    - It uses publisher confirms with `mandatory=True`, the same bounded broker-nack retry as M1, and a 5 s deadline.
    - The publisher always resolves the future: confirmed, nacked or unroutable, or dropped before sending because the deadline passed. The request thread therefore never decides about a publish whose outcome it doesn't know.
 5. Confirmed: CAS `PENDING → SENT` (sets `sent_at`) and answer 202. Otherwise: `PENDING → FAILED` and 503 `command_not_sent`.
-6. **Ingestor, on ACK or NACK:** `UPDATE commands SET status, replied_at, nack_* WHERE id = command_msg_id AND drone_id = envelope.drone_id AND status IN ('PENDING','SENT','TIMED_OUT')`.
-   - **Late replies win:** a reply that arrives after `TIMED_OUT` sets the real status and `late = true`. A timeout means "we stopped waiting", not "it failed".
+6. **Ingestor, on ACK or NACK:** `UPDATE commands SET status, replied_at, nack_* WHERE id = command_msg_id AND drone_id = envelope.drone_id AND status IN ('PENDING','SENT','TIMED_OUT','FAILED')`.
+   - **Late replies win:** a reply that arrives after `TIMED_OUT` sets the real status and `late = true`. A timeout means "we stopped waiting", not "it failed". The same rule applies after `FAILED` (the publish deadline passed but the broker had already routed the command; #28, from the PR #34 review).
    - It then publishes `command.updated`.
 7. **Ingestor sweeper, every 1 s:**
    - `SENT → TIMED_OUT` when `sent_at < now() - COMMAND_TIMEOUT_S` (default 10).
@@ -181,6 +181,9 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
 - Terminal states absorb. Every transition is a CAS (`UPDATE ... WHERE id = :id AND state = ANY(:allowed_from)`), so duplicates and out-of-order messages never move a mission backwards.
 - A MISSION_STATUS whose `mission_id` belongs to another drone is ignored, logged and counted.
 - Abort sends RETURN_HOME or LAND; the mission becomes `ABORTED` when the drone's final status arrives.
+- **Progress (#28):** `missions.waypoint_index` and `progress_pct` hold the latest MISSION_STATUS values (null until the first one; never moved backwards) and appear in the `Mission` schema. `started_at` is the launch time (DISPATCHING), which the 60 s dispatch timeout counts from; the command sweeper fails such missions with `DISPATCH_TIMEOUT`.
+- **Events (#28):** `mission_events.kind` is `created`, `command` (one per command sent for the mission) or `state_changed` (with the reason for `FAILED`). Periodic MISSION_STATUS updates only the progress columns.
+- **Mission writes share the command rate limit** (30/min per user) on `POST /missions`, `/start` and `/abort`, since each one publishes.
 
 **Alerts:**
 - Drone ALERT messages (LOW_BATTERY, CRITICAL_BATTERY, GEOFENCE_BREACH, LINK_RESTORED) become rows with `source=DRONE`, deduplicated by `msg_id`. The backend derives only what a drone cannot report.
@@ -188,6 +191,8 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
 - No heartbeat for `LINK_LOSS_AFTER_S=5` raises a derived `LINK_LOST` (WARNING) and sets Redis `link=LOST`. The next heartbeat clears it (`cleared_at`) and sets `link=UP`.
 - The partial unique index on open derived alerts makes a standby replica, or a restart, unable to raise a second one.
 - Only drones that have sent at least one heartbeat are watched.
+- **Who owns `link` (#28):** the latest-state script only sets `link=UP` when the hash is new; afterwards only the watchdog changes it, so telemetry other than HEARTBEAT cannot hide an open `LINK_LOST`.
+- **Hot standby (#28):** before raising, the watchdog re-reads `last_heartbeat_at` from Redis; a standby that consumes nothing therefore never raises for a drone the active ingestor still hears. At startup it also loads the open `LINK_LOST` alerts, so the next heartbeat clears an alert raised before a restart.
 
 ## 9. Realtime (Flask-SocketIO, threading mode)
 
@@ -217,7 +222,7 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
 - `deploy/postgres/initdb.d/10-roles.sh` creates the roles from env passwords. It runs on a fresh volume only, so existing local stacks need `make down -v` once.
 - `skyhaul_owner` owns the schema and runs Alembic through a one-shot `migrate` service.
 - `skyhaul_api`: SELECT/INSERT/UPDATE on the app tables, INSERT on `audit_log`, no DDL, no DELETE except soft deletes via UPDATE.
-- `skyhaul_ingestor`: INSERT on `telemetry`, `alerts` and `mission_events`; UPDATE on `commands`, `missions` and `alerts`; DELETE on `telemetry`; SELECT on `drones`, `missions` and `commands`.
+- `skyhaul_ingestor`: INSERT on `telemetry`, `alerts` and `mission_events`; UPDATE on `commands`, `missions` and `alerts`; DELETE on `telemetry`; SELECT on `drones`, `missions`, `commands` and `alerts` (`UPDATE ... RETURNING` and `ON CONFLICT ... RETURNING` on alerts need it; added with #28).
 - None of them is a superuser or `CREATEROLE`.
 
 **Redis:** `requirepass` as today.
@@ -244,7 +249,7 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
 2. The ingestor runs on exactly one thread (`threading.enumerate()` under load).
 3. The ingestor never acks before the batch's commit. Killing it between commit and ack, then redelivering, adds no duplicate row.
 4. Telemetry and drone-alert inserts are idempotent: replaying the same batch leaves the counts unchanged.
-5. Commands: an ACK racing the timeout sweep ends in exactly one final status; a duplicate ACK is a no-op; a late ACK after `TIMED_OUT` ends `ACKED` with `late=true`; a reply naming another drone's command changes nothing.
+5. Commands: an ACK racing the timeout sweep ends in exactly one final status; a duplicate ACK is a no-op; a late ACK after `TIMED_OUT` or `FAILED` ends `ACKED` with `late=true`; a reply naming another drone's command changes nothing.
 6. Missions never regress: an out-of-order MISSION_STATUS (ACTIVE after COMPLETED) is ignored, and a MISSION_STATUS before the START_MISSION ACK still reaches ACTIVE. Cancel outside PLANNED is a 409.
 7. Redis latest state never goes back in time (an older `ts` loses).
 8. One live mission per drone: N concurrent `POST /missions` give one 201 and N−1 409s.
@@ -268,7 +273,7 @@ Approved by the human on 2026-11-24.
 | 4 | **One API process in M2** (gunicorn, one worker, 32 threads). Multi-replica API (Socket.IO message queue, sticky sessions, more publisher threads) is deferred to M4. | ADR 0010, 0014 |
 | 5 | **The ingestor owns all inbound messages**, ACK and NACK included; the API never consumes AMQP. | ADR 0010 |
 | 6 | **`POST /missions {start: true}` pipelines ARM and START_MISSION** without waiting, relying on per-drone order (ADR 0006). | ADR 0010 |
-| 7 | **Late replies win:** `TIMED_OUT → ACKED/NACKED` with `late=true`. A mission waits up to 60 s before `FAILED`. | ADR 0010 |
+| 7 | **Late replies win:** `TIMED_OUT → ACKED/NACKED` and `FAILED → ACKED/NACKED` (added with #28) with `late=true`. A mission waits up to 60 s before `FAILED`. | ADR 0010 |
 | 8 | **7-day telemetry retention, plain table, no partitioning** in M2. | ADR 0012 |
 | 9 | **Access token only** (15 min); refresh cookie and CSRF in M3. | ADR 0011 |
 | 10 | **Bootstrap through a CLI** (`flask skyhaul bootstrap --admin-email`) creates the first admin; there is no signup. | ADR 0011 |

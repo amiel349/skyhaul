@@ -11,6 +11,7 @@ from skyhaul_fleet_core.db import make_engine, make_session_factory
 from skyhaul_fleet_core.settings import SettingsError
 
 from skyhaul_api import health
+from skyhaul_api.alerts import routes as alert_routes
 from skyhaul_api.audit import routes as audit_routes
 from skyhaul_api.auth import routes as auth_routes
 from skyhaul_api.auth.guard import init_guard
@@ -22,6 +23,7 @@ from skyhaul_api.database import SESSIONS_KEY, init_database
 from skyhaul_api.drones import routes as drone_routes
 from skyhaul_api.errors import init_errors
 from skyhaul_api.logs import configure_logging, init_request_logging
+from skyhaul_api.missions import routes as mission_routes
 from skyhaul_api.openapi import API_PREFIX, make_api
 from skyhaul_api.ratelimit import init_rate_limits
 from skyhaul_api.users import routes as user_routes
@@ -88,6 +90,8 @@ def _create_routes_app() -> Flask:
         user_routes.blp,
         drone_routes.blp,
         command_routes.blp,
+        mission_routes.blp,
+        alert_routes.blp,
         audit_routes.blp,
     ):
         api.register_blueprint(blueprint, url_prefix=API_PREFIX)

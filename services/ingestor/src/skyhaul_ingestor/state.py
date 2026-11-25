@@ -9,8 +9,14 @@ from datetime import datetime
 from typing import Any, Final
 
 import redis
-from skyhaul_contracts.message import format_ts
-from skyhaul_fleet_core.keys import EVENTS_CHANNEL, drone_state_key
+from skyhaul_contracts.message import format_ts, parse_ts
+from skyhaul_contracts.topology import DRONE_ID_RE
+from skyhaul_fleet_core.keys import (
+    DRONE_STATE_PATTERN,
+    DRONE_STATE_PREFIX,
+    EVENTS_CHANNEL,
+    drone_state_key,
+)
 from skyhaul_fleet_core.live_state import STATE_TTL_S, read_live_state
 
 from skyhaul_ingestor.handlers import StateUpdate
@@ -26,9 +32,10 @@ for i = 5, #ARGV do args[#args + 1] = ARGV[i] end
 redis.call('HSET', key, unpack(args))
 local seen = redis.call('HGET', key, 'ts_raw')
 if not seen or seen < ts then
-  redis.call('HSET', key, 'ts_raw', ts, 'ts', cjson.encode(ts), 'last_seen_at', ARGV[3],
-    'link', '"UP"')
+  redis.call('HSET', key, 'ts_raw', ts, 'ts', cjson.encode(ts), 'last_seen_at', ARGV[3])
 end
+-- The link watchdog owns ``link`` once it exists (LOST until the next heartbeat).
+redis.call('HSETNX', key, 'link', '"UP"')
 redis.call('EXPIRE', key, ARGV[4])
 return redis.call('HGETALL', key)
 """
@@ -67,6 +74,35 @@ class StateWriter:
         for event in events:
             pipe.publish(EVENTS_CHANNEL, json.dumps(event))
         pipe.execute()
+
+    def set_link(self, drone_id: str, link: str) -> None:
+        """Set ``link`` (UP or LOST) of an existing hash and publish its ``drone.state``."""
+        key = drone_state_key(drone_id)
+        pipe = self._client.pipeline(transaction=True)
+        pipe.hset(key, "link", json.dumps(link))
+        pipe.hgetall(key)
+        raw = pipe.execute()[1]
+        event = {"drone_id": drone_id, "state": read_live_state(raw)}
+        self._client.publish(EVENTS_CHANNEL, json.dumps({"event": "drone.state", "data": event}))
+
+    def last_heartbeats(self, drone_ids: Sequence[str] | None = None) -> dict[str, datetime]:
+        """``last_heartbeat_at`` of the given drones, or of every drone hash (a SCAN)."""
+        if drone_ids is None:
+            keys = [_text(k) for k in self._client.scan_iter(match=DRONE_STATE_PATTERN, count=500)]
+            ids = [k.removeprefix(DRONE_STATE_PREFIX) for k in keys]
+            drone_ids = [d for d in ids if DRONE_ID_RE.fullmatch(d)]
+        pipe = self._client.pipeline(transaction=False)
+        for drone_id in drone_ids:
+            pipe.hget(drone_state_key(drone_id), "last_heartbeat_at")
+        found: dict[str, datetime] = {}
+        for drone_id, raw in zip(drone_ids, pipe.execute(), strict=True):
+            if raw is not None:
+                found[drone_id] = parse_ts(json.loads(raw))
+        return found
+
+
+def _text(value: bytes | str) -> str:
+    return value.decode() if isinstance(value, bytes) else value
 
 
 def _args(update: StateUpdate, seen: str) -> list[str | int]:

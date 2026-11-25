@@ -2588,6 +2588,32 @@
                 "type": "null"
               }
             ]
+          },
+          "waypoint_index": {
+            "description": "Zero-based index of the waypoint being flown to, from the drone's latest MISSION_STATUS. Null until the first one.",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress_pct": {
+            "description": "Mission progress in percent, from the drone's latest MISSION_STATUS. Null until the first one.",
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2600,7 +2626,9 @@
           "created_at",
           "started_at",
           "ended_at",
-          "failure_reason"
+          "failure_reason",
+          "waypoint_index",
+          "progress_pct"
         ]
       },
       "MissionDispatch": {

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
+from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -104,9 +106,11 @@ def store(
     *,
     user_id: uuid.UUID,
     idempotency_key: str | None,
+    mission_id: uuid.UUID | None = None,
 ) -> Command:
     """Insert the PENDING command and its audit entry, and commit (one transaction)."""
     command = Command(
+        mission_id=mission_id,
         id=uuid.UUID(message.msg_id),
         drone_id=message.drone_id,
         type=message.type.value,
@@ -125,17 +129,37 @@ def store(
         actor=user_id,
         target_type="command",
         target_id=str(command.id),
-        data={"drone_id": command.drone_id, "type": command.type},
+        data={
+            "drone_id": command.drone_id,
+            "type": command.type,
+            **({"mission_id": str(mission_id)} if mission_id else {}),
+        },
     )
     session.commit()
     return command
 
 
 def publish(publisher: CommandPublisher, message: Message[BaseModel], body: bytes) -> Outcome:
-    try:
-        future = publisher.submit(message, body)
-    except PublisherFull:
-        log.warning("command publisher queue full", extra={"correlation_id": message.msg_id})
+    return publish_all(publisher, [(message, body)])[0]
+
+
+def publish_all(
+    publisher: CommandPublisher, items: Sequence[tuple[Message[BaseModel], bytes]]
+) -> list[Outcome]:
+    """Hand every message to the publisher first, then wait: the messages are pipelined in
+    order (the publisher thread sends its queue in FIFO order)."""
+    futures: list[Future[Outcome] | None] = []
+    for message, body in items:
+        try:
+            futures.append(publisher.submit(message, body))
+        except PublisherFull:
+            log.warning("command publisher queue full", extra={"correlation_id": message.msg_id})
+            futures.append(None)
+    return [_outcome(publisher, future) for future in futures]
+
+
+def _outcome(publisher: CommandPublisher, future: Future[Outcome] | None) -> Outcome:
+    if future is None:
         return Outcome.UNREACHABLE
     try:
         return future.result(timeout=publisher.deadline_s + RESULT_GRACE_S)
@@ -144,15 +168,25 @@ def publish(publisher: CommandPublisher, message: Message[BaseModel], body: byte
         return Outcome.UNREACHABLE
 
 
-def finish(session: Session, command: Command, outcome: Outcome) -> Command:
-    """SENT if confirmed, FAILED otherwise. A reply may have overtaken the confirm; the CAS
-    then changes nothing and the reply's status stands."""
+def settle(session: Session, command: Command, outcome: Outcome) -> Command:
+    """SENT if confirmed, FAILED otherwise, and commit. A reply may have overtaken the
+    confirm; the CAS then changes nothing and the reply's status stands."""
     if outcome is Outcome.CONFIRMED:
         cas_update(session, Command, command.id, CommandStatus.SENT, sent_at=datetime.now(UTC))
     else:
         cas_update(session, Command, command.id, CommandStatus.FAILED)
     session.commit()
     session.refresh(command)
+    return command
+
+
+def not_sent() -> ApiError:
+    return ApiError(503, "command_not_sent", "The broker did not confirm the command.")
+
+
+def finish(session: Session, command: Command, outcome: Outcome) -> Command:
+    """``settle``, then 503 ``command_not_sent`` unless the broker confirmed it."""
+    settle(session, command, outcome)
     if outcome is not Outcome.CONFIRMED:
-        raise ApiError(503, "command_not_sent", "The broker did not confirm the command.")
+        raise not_sent()
     return command

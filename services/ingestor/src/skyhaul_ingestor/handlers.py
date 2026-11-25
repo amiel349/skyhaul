@@ -1,4 +1,6 @@
-"""Per message type: the telemetry row to store and the latest-state update for Redis."""
+"""Per message type: the telemetry row to store, the latest-state update for Redis, and what
+the message means for commands (ACK, NACK), missions (MISSION_STATUS), alerts (ALERT) and the
+link watchdog (HEARTBEAT)."""
 
 from __future__ import annotations
 
@@ -10,7 +12,13 @@ from typing import Any, Final
 from pydantic import BaseModel
 from skyhaul_contracts.message import Message, parse_ts
 from skyhaul_contracts.types import MessageType
-from skyhaul_fleet_core.models import CommandStatus
+from skyhaul_fleet_core.models import (
+    AlertCode,
+    AlertSeverity,
+    AlertSource,
+    CommandStatus,
+    MissionState,
+)
 
 STORED: Final = frozenset(
     {MessageType.POSITION, MessageType.BATTERY, MessageType.MISSION_STATUS, MessageType.ALERT}
@@ -39,17 +47,67 @@ class Reply:
 
 
 @dataclass(frozen=True)
+class MissionUpdate:
+    """A drone's MISSION_STATUS, applied to the mission it names (if that drone flies it)."""
+
+    mission_id: uuid.UUID | None  # None: not a mission id the API issued (not a UUID)
+    drone_id: str
+    state: MissionState
+    waypoint_index: int
+    progress_pct: float
+
+
+@dataclass(frozen=True)
 class Handled:
     row: dict[str, Any] | None
     state: StateUpdate | None
     reply: Reply | None = None
+    mission: MissionUpdate | None = None
+    alert: dict[str, Any] | None = None
+    heartbeat: bool = False
 
 
 def handle(msg: Message[BaseModel], received_at: datetime) -> Handled:
-    """Stored types give a row, HEARTBEAT gives state only, ACK and NACK give a reply."""
+    """Stored types give a row, HEARTBEAT gives state and a heartbeat, ACK and NACK give a
+    reply, MISSION_STATUS a mission update and ALERT an alert row."""
     payload = msg.payload.model_dump(mode="json")
     row = _row(msg, payload, received_at) if msg.type in STORED else None
-    return Handled(row, _state(msg.type, msg.ts, payload), _reply(msg, payload, received_at))
+    return Handled(
+        row,
+        _state(msg.type, msg.ts, payload),
+        _reply(msg, payload, received_at),
+        _mission(msg, payload),
+        _alert(msg, payload),
+        heartbeat=msg.type is MessageType.HEARTBEAT,
+    )
+
+
+def _mission(msg: Message[BaseModel], payload: dict[str, Any]) -> MissionUpdate | None:
+    if msg.type is not MessageType.MISSION_STATUS:
+        return None
+    return MissionUpdate(
+        _uuid_or_none(payload["mission_id"]),
+        msg.drone_id,
+        MissionState(payload["state"]),
+        payload["waypoint_index"],
+        payload["progress_pct"],
+    )
+
+
+def _alert(msg: Message[BaseModel], payload: dict[str, Any]) -> dict[str, Any] | None:
+    """A drone alert row; ``message`` is plain text data, stored as is."""
+    if msg.type is not MessageType.ALERT:
+        return None
+    return {
+        "msg_id": uuid.UUID(msg.msg_id),
+        "drone_id": msg.drone_id,
+        "code": AlertCode(payload["code"]),
+        "severity": AlertSeverity(payload["severity"]),
+        "message": payload["message"],
+        "value": payload["value"],
+        "source": AlertSource.DRONE,
+        "raised_at": parse_ts(msg.ts),
+    }
 
 
 def _reply(msg: Message[BaseModel], payload: dict[str, Any], received_at: datetime) -> Reply | None:
@@ -96,3 +154,10 @@ def _state(type: MessageType, ts: str, p: dict[str, Any]) -> StateUpdate | None:
             return StateUpdate("mis", ts, {"mission_id": p["mission_id"]})
         case _:
             return None
+
+
+def _uuid_or_none(value: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None

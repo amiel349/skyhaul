@@ -26,7 +26,14 @@ LOGIN_ENDPOINT: Final = "auth.login"
 LOGIN_PER_IP_EMAIL: Final = "5/minute"
 LOGIN_PER_IP: Final = "20/minute"
 COMMAND_ENDPOINT: Final = "commands.send_command"
+# Mission writes that publish commands draw from the same per-user counter as commands.
+MISSION_COMMAND_ENDPOINTS: Final = (
+    "missions.create_mission",
+    "missions.start_mission",
+    "missions.abort_mission",
+)
 COMMANDS_PER_USER: Final = "30/minute"
+COMMAND_SCOPE: Final = "commands"
 STORAGE_TIMEOUT_S: Final = 2
 
 
@@ -71,8 +78,11 @@ def init_rate_limits(app: Flask, redis_url: str) -> Limiter:
         LOGIN_PER_IP_EMAIL, key_func=client_ip_and_email, on_breach=_audit_breach
     )(login)
     app.view_functions[LOGIN_ENDPOINT] = login
-    send: Any = app.view_functions[COMMAND_ENDPOINT]
-    app.view_functions[COMMAND_ENDPOINT] = limiter.limit(COMMANDS_PER_USER, key_func=user_key)(send)
+    # One shared scope: a command and a mission launch spend from a single counter.
+    commands = limiter.shared_limit(COMMANDS_PER_USER, scope=COMMAND_SCOPE, key_func=user_key)
+    for endpoint in (COMMAND_ENDPOINT, *MISSION_COMMAND_ENDPOINTS):
+        view: Any = app.view_functions[endpoint]
+        app.view_functions[endpoint] = commands(view)
     app.register_error_handler(StorageError, _storage_down)
     app.register_error_handler(RedisError, _storage_down)
     return limiter

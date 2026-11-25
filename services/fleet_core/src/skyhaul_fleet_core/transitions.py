@@ -24,11 +24,12 @@ COMMAND_TRANSITIONS: Final[Mapping[CommandStatus, frozenset[CommandStatus]]] = M
         # A reply can overtake the broker confirm, so PENDING may go straight to a reply.
         S.PENDING: frozenset({S.SENT, S.FAILED, S.ACKED, S.NACKED}),
         S.SENT: frozenset({S.ACKED, S.NACKED, S.TIMED_OUT}),
-        # Late replies win (they also set late=true).
+        # Late replies win (they also set late=true): a timeout means "we stopped waiting",
+        # and FAILED (publish deadline passed) may still have been routed by the broker.
         S.TIMED_OUT: frozenset({S.ACKED, S.NACKED}),
+        S.FAILED: frozenset({S.ACKED, S.NACKED}),
         S.ACKED: frozenset(),
         S.NACKED: frozenset(),
-        S.FAILED: frozenset(),
     }
 )
 

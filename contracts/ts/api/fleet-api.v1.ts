@@ -580,6 +580,10 @@ export interface components {
             started_at: string | null;
             ended_at: string | null;
             failure_reason: string | null;
+            /** @description Zero-based index of the waypoint being flown to, from the drone's latest MISSION_STATUS. Null until the first one. */
+            waypoint_index: number | null;
+            /** @description Mission progress in percent, from the drone's latest MISSION_STATUS. Null until the first one. */
+            progress_pct: number | null;
         };
         MissionDispatch: {
             mission: components["schemas"]["Mission"];
