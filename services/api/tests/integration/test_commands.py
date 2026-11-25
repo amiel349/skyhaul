@@ -235,6 +235,11 @@ def test_viewers_get_403_unknown_drones_404_and_a_31st_command_a_minute_429(
     limited = send(api, dispatcher, missing, {"type": "ARM"})
     assert limited.status_code == 429
     assert int(limited.headers["Retry-After"]) > 0
+    # Mission launches spend from the same counter, so they cannot bypass the limit.
+    launch = api.post(
+        "/api/v1/missions", json={"drone_id": missing, "start": True}, headers=bearer(dispatcher)
+    )
+    assert launch.status_code == 429
     # Per user: another dispatcher is not limited.
     assert send(api, token(Role.DISPATCHER), missing, {"type": "ARM"}).status_code == 404
 
