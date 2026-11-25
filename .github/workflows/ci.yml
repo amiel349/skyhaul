@@ -153,6 +153,10 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # Component tests run in real Chromium (Vitest browser mode, one test file per .vue file).
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:components
+      - run: pnpm check:tests
       - run: pnpm build
 
   compose:

@@ -4,14 +4,15 @@ SKYHAUL_ENV ?= dev
 DEV_ENV_FILE := $(if $(filter dev,$(SKYHAUL_ENV)),$(wildcard .env.dev))
 COMPOSE := docker compose --env-file .env $(addprefix --env-file ,$(DEV_ENV_FILE)) -f deploy/compose.yaml
 
-.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test web-tests-check test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test web-components web-tests-check test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
-setup: ## Install Python and web dependencies and git hooks
+setup: ## Install Python and web dependencies, the test browser and git hooks
 	uv sync
 	cd web && pnpm install
+	cd web && pnpm exec playwright install chromium
 	pre-commit install
 
 env: ## Create .env with generated secrets
@@ -56,6 +57,9 @@ test: ## Run unit, contract and concurrency tests
 	uv run pytest -m "not integration"
 	cd web && pnpm test
 
+web-components: ## Run the web component tests in headless Chromium (pnpm exec playwright install chromium once)
+	cd web && pnpm test:components
+
 web-tests-check: ## Fail if a web .vue file has no sibling test file
 	cd web && pnpm check:tests
 
@@ -84,4 +88,4 @@ migrate: ## Run the database migrations of the local stack
 secrets: ## Scan the whole git history for secrets
 	gitleaks git --redact --no-banner -v
 
-check: lint typecheck test web-tests-check contracts-check openapi-check secrets ## Run everything CI runs (except integration)
+check: lint typecheck test web-components web-tests-check contracts-check openapi-check secrets ## Run everything CI runs (except integration)
