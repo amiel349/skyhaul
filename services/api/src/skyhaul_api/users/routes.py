@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from flask import Response, jsonify
 from flask_smorest import Blueprint
 from skyhaul_fleet_core.models import Role, User
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from skyhaul_api.audit.service import record
 from skyhaul_api.auth.guard import principal
@@ -103,7 +105,7 @@ def create_user() -> Response:
     summary="Change a user's role or active flag",
     parameters=[REQUEST_ID_PARAMETER],
     requestBody=json_body("UserUpdate"),
-    responses=error_doc(*PROTECTED_ERRORS, *BODY_ERRORS, 404),
+    responses=error_doc(*PROTECTED_ERRORS, *BODY_ERRORS, 404, 409),
     **USER_ADMIN,
 )
 @blp.response(200, schema_ref("User"), description="OK", headers=REQUEST_ID_HEADERS)
@@ -114,6 +116,8 @@ def update_user(user_id: uuid.UUID) -> Response:
     if user is None:
         raise ApiError(404, "not_found", "The user does not exist.")
     body = load_body(UserUpdateSchema())
+    if _removes_an_admin(user, body) and not _other_active_admins(session, user):
+        raise ApiError(409, "last_admin", "The change would leave no active admin.")
     if "role" in body:
         user.role = Role(body["role"])
     if "is_active" in body:
@@ -129,6 +133,22 @@ def update_user(user_id: uuid.UUID) -> Response:
     )
     session.commit()
     return jsonify(user_json(user))
+
+
+def _removes_an_admin(user: User, body: dict[str, Any]) -> bool:
+    if user.role is not Role.ADMIN or not user.is_active:
+        return False
+    return body.get("role", Role.ADMIN.value) != Role.ADMIN.value or body.get("is_active") is False
+
+
+def _other_active_admins(session: Session, user: User) -> list[uuid.UUID]:
+    """Locks the active admin rows, so two concurrent demotions cannot both pass."""
+    statement = (
+        select(User.id)
+        .where(User.role == Role.ADMIN, User.is_active.is_(True), User.id != user.id)
+        .with_for_update()
+    )
+    return list(session.scalars(statement))
 
 
 def _email_taken() -> ApiError:

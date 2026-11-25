@@ -14,12 +14,14 @@ import jwt
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
+from psycopg.errors import CheckViolation, UniqueViolation
 from skyhaul_api.auth import routes as auth_routes
 from skyhaul_api.auth.permissions import ANY_USER, PUBLIC, Permission, access_of, has_permission
 from skyhaul_api.auth.tokens import AUDIENCE, ISSUER
 from skyhaul_api.openapi import API_PREFIX
-from skyhaul_fleet_core.models import AuditEntry, Role, User
+from skyhaul_fleet_core.models import AuditEntry, Drone, Role, User
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.integration
@@ -371,3 +373,68 @@ def test_no_token_password_or_authorization_header_in_logs_or_error_bodies(
         assert wrong_password not in text
         assert "Bearer " not in text
         assert "Authorization" not in text
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"id": "ab\n"}, "id"),
+        ({"home": {"lat": 0, "lon": 180}}, "home.lon"),
+    ],
+)
+def test_drone_registration_rejects_a_trailing_newline_id_and_lon_180(
+    api: FlaskClient, make_user: MakeUser, token_for: TokenFor, change: dict[str, Any], field: str
+) -> None:
+    admin = bearer(token_for(make_user(Role.ADMIN)))
+    body = {**_drone_body(f"edge-{uuid.uuid4().hex[:8]}"), **change}
+    response = api.post("/api/v1/drones", headers=admin, json=body)
+    assert response.status_code == 422
+    assert field in response.get_json()["fields"]
+
+
+def test_only_a_unique_violation_on_drone_insert_is_a_409(
+    api: FlaskClient, make_user: MakeUser, token_for: TokenFor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin = bearer(token_for(make_user(Role.ADMIN)))
+
+    real_flush = Session.flush
+
+    def failing_flush(cause: Exception) -> Callable[..., None]:
+        def flush(self: Session, *args: Any, **kwargs: Any) -> None:
+            if any(isinstance(obj, Drone) for obj in self.new):
+                raise IntegrityError("INSERT", {}, cause)
+            real_flush(self, *args, **kwargs)
+
+        return flush
+
+    for cause, status in ((UniqueViolation(), 409), (CheckViolation(), 500)):
+        monkeypatch.setattr(Session, "flush", failing_flush(cause))
+        body = _drone_body(f"iv-{uuid.uuid4().hex[:8]}")
+        response = api.post("/api/v1/drones", headers=admin, json=body)
+        assert response.status_code == status, type(cause).__name__
+
+
+def test_the_last_active_admin_cannot_be_demoted_or_deactivated(
+    api: FlaskClient, make_user: MakeUser, token_for: TokenFor, db_session: Session
+) -> None:
+    admin = make_user(Role.ADMIN)
+    headers = bearer(token_for(admin))
+    others = list(
+        db_session.scalars(
+            select(User).where(User.role == Role.ADMIN, User.id != admin.id, User.is_active)
+        )
+    )
+    for other in others:
+        other.is_active = False
+    db_session.commit()
+    try:
+        url = f"/api/v1/users/{admin.id}"
+        for change in ({"role": "dispatcher"}, {"is_active": False}):
+            response = api.patch(url, headers=headers, json=change)
+            assert (response.status_code, response.get_json()["error"]) == (409, "last_admin")
+        make_user(Role.ADMIN)
+        assert api.patch(url, headers=headers, json={"role": "viewer"}).status_code == 200
+    finally:
+        for other in others:
+            other.is_active = True
+        db_session.commit()

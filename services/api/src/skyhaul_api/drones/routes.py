@@ -10,6 +10,7 @@ from typing import Any
 from flask import Response, jsonify
 from flask_smorest import Blueprint
 from marshmallow import RAISE, Schema, fields, validate
+from psycopg.errors import UniqueViolation
 from skyhaul_contracts.topology import DRONE_ID_RE
 from skyhaul_fleet_core.models import Drone
 from sqlalchemy import select
@@ -43,7 +44,9 @@ class GeoPointSchema(Schema):
         unknown = RAISE
 
     lat = fields.Float(required=True, validate=validate.Range(-90, 90), allow_nan=False)
-    lon = fields.Float(required=True, validate=validate.Range(-180, 180), allow_nan=False)
+    lon = fields.Float(
+        required=True, validate=validate.Range(-180, 180, max_inclusive=False), allow_nan=False
+    )
 
 
 class DroneCreateSchema(Schema):
@@ -51,7 +54,8 @@ class DroneCreateSchema(Schema):
         unknown = RAISE
 
     id = fields.String(
-        required=True, validate=validate.Regexp(f"^{DRONE_ID_RE.pattern}$", error="Not a drone id.")
+        required=True,
+        validate=validate.Regexp(rf"^{DRONE_ID_RE.pattern}\Z", error="Not a drone id."),
     )
     name = fields.String(required=True, validate=validate.Length(min=1, max=128))
     home = fields.Nested(GeoPointSchema, required=True)
@@ -113,7 +117,9 @@ def create_drone() -> Response:
     session.add(drone)
     try:
         session.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
+        if not isinstance(exc.orig, UniqueViolation):
+            raise
         raise _id_taken() from None
     _audit(session, "drone.create", drone.id)
     session.commit()
