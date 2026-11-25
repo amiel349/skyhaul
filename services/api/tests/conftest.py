@@ -14,6 +14,7 @@ from flask.testing import FlaskClient
 from jsonschema import Draft202012Validator
 from skyhaul_api import create_app
 from skyhaul_api.auth.permissions import public
+from skyhaul_api.commands.publisher import CommandPublisher
 from skyhaul_api.config import Config
 
 CONTRACT_PATH = Path(__file__).resolve().parents[3] / "contracts" / "openapi" / "fleet-api.v1.json"
@@ -53,7 +54,13 @@ def app() -> Flask:
             database_url="postgresql+psycopg://nobody@127.0.0.1:1/none",
             redis_url="redis://127.0.0.1:1/0",
             jwt_secret=secrets.token_hex(32),
-        )
+            rabbitmq_host="127.0.0.1",
+            rabbitmq_user="nobody",
+            rabbitmq_password=secrets.token_hex(8),
+            rabbitmq_port=1,
+        ),
+        # Never started: not connected, and every publish resolves as STOPPED.
+        publisher=CommandPublisher(lambda: None),
     )
 
     @app.post("/api/v1/_test/echo")

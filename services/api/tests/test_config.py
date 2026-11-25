@@ -17,6 +17,7 @@ URLS = {"DATABASE_URL": "postgresql+psycopg://u@db/x", "REDIS_URL": "redis://red
         ({**URLS, "JWT_SECRET": secrets.token_hex(20), "DATABASE_URL": ""}, "DATABASE_URL"),
         ({**URLS}, "JWT_SECRET"),
         ({**URLS, "JWT_SECRET": SHORT_SECRET}, "JWT_SECRET"),
+        ({**URLS, "JWT_SECRET": secrets.token_hex(20), "RABBITMQ_HOST": "mq"}, "RABBITMQ_USER"),
     ],
 )
 def test_boot_exits_with_a_message_naming_the_missing_variable(
@@ -25,7 +26,7 @@ def test_boot_exits_with_a_message_naming_the_missing_variable(
     env: dict[str, str],
     named: str,
 ) -> None:
-    for name in ("DATABASE_URL", "REDIS_URL", "JWT_SECRET"):
+    for name in ("DATABASE_URL", "REDIS_URL", "JWT_SECRET", "RABBITMQ_HOST", "RABBITMQ_USER"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)

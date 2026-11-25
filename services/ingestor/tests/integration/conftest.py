@@ -99,12 +99,13 @@ def stack() -> Iterator[Stack]:
 
 
 def _create_ingestor_role(owner_url: str, password: str) -> None:
-    """The grants of design section 10 that #27 needs (telemetry and drones)."""
+    """The grants of design section 10 that #27 and #26 need (telemetry, drones, commands)."""
     engine = create_engine(owner_url)
     with engine.begin() as conn:
         conn.execute(text(f"CREATE ROLE ingestor LOGIN PASSWORD '{password}'"))
         conn.execute(text("GRANT SELECT, INSERT, DELETE ON telemetry TO ingestor"))
         conn.execute(text("GRANT SELECT ON drones TO ingestor"))
+        conn.execute(text("GRANT SELECT, UPDATE ON commands TO ingestor"))
     engine.dispose()
 
 

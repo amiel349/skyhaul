@@ -1,8 +1,8 @@
 """``/healthz`` (the process is alive) and ``/readyz`` (its dependencies answer). Both public.
 
 Readiness checks are registered by name. The contract names three: ``db``, ``redis`` and
-``publisher``. A name registered with ``None`` is not configured yet: it reports ``false``
-and does not make the API unready. The command publisher stays that way until #26 wires it.
+``publisher`` (the command publisher's broker connection is open). A name registered with
+``None`` is not configured: it reports ``false`` and does not make the API unready.
 """
 
 from __future__ import annotations

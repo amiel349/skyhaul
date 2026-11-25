@@ -174,8 +174,13 @@ class Command(Base):
     __tablename__ = "commands"
     __table_args__ = (
         UniqueConstraint("requested_by", "idempotency_key"),
-        # The sweeper scans only commands waiting for a reply.
+        # The sweeper scans only commands waiting for a reply or for the broker confirm.
         Index("ix_commands_sent_at_sent", "sent_at", postgresql_where=text("status = 'SENT'")),
+        Index(
+            "ix_commands_created_at_pending",
+            "created_at",
+            postgresql_where=text("status = 'PENDING'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)

@@ -6,7 +6,7 @@ import uuid
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,11 +14,12 @@ import pytest
 from skyhaul_contracts.codec import Codec
 from skyhaul_contracts.types import MessageType
 from skyhaul_contracts.v1 import AckPayload, BatteryPayload, HeartbeatPayload
+from skyhaul_fleet_core.models import CommandStatus
 from skyhaul_ingestor import batch as batch_module
 from skyhaul_ingestor import store
 from skyhaul_ingestor.batch import FLUSH_MAX_MESSAGES, Batch, Flusher, Pending
 from skyhaul_ingestor.consumer import Ingestor
-from skyhaul_ingestor.handlers import Handled, StateUpdate, handle
+from skyhaul_ingestor.handlers import Handled, Reply, StateUpdate, handle
 from skyhaul_ingestor.registry import RegistryCache
 from sqlalchemy.exc import OperationalError
 
@@ -55,11 +56,15 @@ class FakeSessions:
 class FakeState:
     events: list[str]
     updates: list[tuple[str, StateUpdate]] | None = None
+    published: list[dict[str, Any]] = field(default_factory=list)
 
     def write(self, updates: list[tuple[str, StateUpdate]], _seen: datetime) -> int:
         self.events.append("redis")
         self.updates = list(updates)
         return 0
+
+    def publish(self, events: list[dict[str, Any]]) -> None:
+        self.published.extend(events)
 
 
 @pytest.fixture
@@ -201,7 +206,9 @@ def test_retention_batch_size_is_10000() -> None:
     assert batch_module.FLUSH_INTERVAL_S == 0.2
 
 
-def test_ack_and_nack_are_not_stored() -> None:
-    payload = AckPayload(command_msg_id=str(uuid.uuid4()), command_type="ARM")
+def test_ack_and_nack_are_not_stored_and_become_replies() -> None:
+    command_id = uuid.uuid4()
+    payload = AckPayload(command_msg_id=str(command_id), command_type="ARM")
     ack = codec.new(MessageType.ACK, "u-d001", payload, str(uuid.uuid4()))
-    assert handle(ack, NOW) == Handled(None, None)
+    reply = Reply(command_id, "u-d001", CommandStatus.ACKED, NOW)
+    assert handle(ack, NOW) == Handled(None, None, reply)

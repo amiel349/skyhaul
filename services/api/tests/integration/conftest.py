@@ -1,7 +1,9 @@
-"""A real Postgres (migrated to head) and Redis for the session, and an API app on them.
+"""A real Postgres (migrated to head), Redis and RabbitMQ (topology declared, as broker-init
+will) for the session, and an API app on them with its real command publisher.
 
 Tests isolate by unique emails and drone ids; Redis (rate-limit counters) is flushed before
-each test.
+each test. The command tests also start the ingestor (a thread) and the simulator (a
+subprocess); see ``test_commands.py``.
 """
 
 from __future__ import annotations
@@ -9,8 +11,9 @@ from __future__ import annotations
 import secrets
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+import pika
 import pytest
 import redis
 from alembic import command
@@ -18,48 +21,86 @@ from flask import Flask
 from flask.testing import FlaskClient
 from skyhaul_api import create_app
 from skyhaul_api.auth.passwords import hash_password
+from skyhaul_api.commands.routes import PUBLISHER_KEY
 from skyhaul_api.config import Config
+from skyhaul_contracts.topology import declare_ingestor_queue, declare_topology
 from skyhaul_fleet_core.migrate import alembic_config
 from skyhaul_fleet_core.models import Role, User
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.rabbitmq import RabbitMqContainer
 from testcontainers.community.redis import RedisContainer
 
 POSTGRES_IMAGE = "postgres:16-alpine"
 REDIS_IMAGE = "redis:7.4-alpine"
+RABBITMQ_IMAGE = "rabbitmq:3.13-management-alpine"
+AMQP_USER = "skyhaul-test"
 # Generated per run: test credentials are never literals.
 PASSWORD = secrets.token_urlsafe(18)
 
 
 @dataclass(frozen=True)
 class Stack:
-    database_url: str
-    redis_url: str
+    database_url: str = field(repr=False)
+    redis_url: str = field(repr=False)
+    amqp_host: str
+    amqp_port: int
+    amqp_password: str = field(repr=False)
+    rabbit: RabbitMqContainer = field(repr=False)
+
+    def amqp(self, vhost: str = "/") -> pika.ConnectionParameters:
+        return pika.ConnectionParameters(
+            host=self.amqp_host,
+            port=self.amqp_port,
+            virtual_host=vhost,
+            credentials=pika.PlainCredentials(AMQP_USER, self.amqp_password),
+        )
+
+    def config(self, **changes: object) -> Config:
+        settings: dict[str, object] = {
+            "database_url": self.database_url,
+            "redis_url": self.redis_url,
+            "jwt_secret": secrets.token_hex(32),
+            "rabbitmq_host": self.amqp_host,
+            "rabbitmq_port": self.amqp_port,
+            "rabbitmq_user": AMQP_USER,
+            "rabbitmq_password": self.amqp_password,
+        }
+        return Config(**(settings | changes))  # type: ignore[arg-type]
 
 
 @pytest.fixture(scope="session")
 def stack() -> Iterator[Stack]:
-    redis_password = secrets.token_hex(16)
+    redis_password, amqp_password = secrets.token_hex(16), secrets.token_urlsafe(24)
     postgres = PostgresContainer(POSTGRES_IMAGE, password=secrets.token_hex(16), driver="psycopg")
     redis_container = RedisContainer(REDIS_IMAGE, password=redis_password)
-    with postgres, redis_container:
+    rabbit = RabbitMqContainer(RABBITMQ_IMAGE, username=AMQP_USER, password=amqp_password)
+    with postgres, redis_container, rabbit:
         url = postgres.get_connection_url()
         command.upgrade(alembic_config(url), "head")
         host = redis_container.get_container_host_ip()
         port = redis_container.get_exposed_port(6379)
-        yield Stack(url, f"redis://:{redis_password}@{host}:{port}/0")
+        stack = Stack(
+            url,
+            f"redis://:{redis_password}@{host}:{port}/0",
+            rabbit.get_container_host_ip(),
+            int(rabbit.get_exposed_port(5672)),
+            amqp_password,
+            rabbit,
+        )
+        connection = pika.BlockingConnection(stack.amqp())
+        declare_topology(connection.channel())  # what broker-init (#29) will do
+        declare_ingestor_queue(connection.channel())
+        connection.close()
+        yield stack
 
 
 @pytest.fixture(scope="session")
-def api_app(stack: Stack) -> Flask:
-    return create_app(
-        Config(
-            database_url=stack.database_url,
-            redis_url=stack.redis_url,
-            jwt_secret=secrets.token_hex(32),
-        )
-    )
+def api_app(stack: Stack) -> Iterator[Flask]:
+    app = create_app(stack.config())
+    yield app
+    app.extensions[PUBLISHER_KEY].stop()
 
 
 @pytest.fixture(autouse=True)
