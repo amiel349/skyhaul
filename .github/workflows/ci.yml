@@ -35,7 +35,38 @@ jobs:
       - name: Scan full history
         run: ./gitleaks git --redact --no-banner -v .
 
+  changes:
+    # Decides which jobs below are needed (scripts/ci-changes.sh). A job skipped by `if` counts as
+    # passed for branch protection, so the required check names stay the same. Pushes to main
+    # always run everything.
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      python: ${{ steps.f.outputs.python }}
+      web: ${{ steps.f.outputs.web }}
+      contracts: ${{ steps.f.outputs.contracts }}
+      integration: ${{ steps.f.outputs.integration }}
+      compose: ${{ steps.f.outputs.compose }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            git diff --name-only "$BASE_SHA" HEAD | tee /dev/stderr | scripts/ci-changes.sh >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' python=true web=true contracts=true integration=true compose=true >> "$GITHUB_OUTPUT"
+          fi
+
   python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     name: Python · lint, types, tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -53,6 +84,8 @@ jobs:
       - run: uv run pytest -m "not integration" --cov --cov-report=term-missing
 
   contracts:
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
     name: Contracts · generated code is up to date
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -80,6 +113,8 @@ jobs:
       - run: make openapi-check
 
   integration:
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
     # Includes the fleet_core migrations: upgrade, downgrade, repeat upgrade, alembic check.
     name: Integration · Testcontainers RabbitMQ, Postgres, Redis
     runs-on: ubuntu-latest
@@ -95,6 +130,8 @@ jobs:
       - run: uv run pytest -m integration
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     name: Web · lint, types, tests
     runs-on: ubuntu-latest
     defaults:
@@ -119,6 +156,8 @@ jobs:
       - run: pnpm build
 
   compose:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
     name: Compose · config and image build
     runs-on: ubuntu-latest
     steps:
