@@ -36,7 +36,7 @@ make contracts  # regenerate Pydantic models and TS types after changing contrac
 make test-integration  # Testcontainers tests (needs Docker); `make test` skips them
 ```
 
-Python: `uv run pytest`, `uv run ruff check .`, `uv run mypy`. Web (in `web/`): `pnpm lint`, `pnpm typecheck`, `pnpm test`.
+Python: `uv run pytest`, `uv run ruff check .`, `uv run mypy`. Web (in `web/`): `pnpm lint`, `pnpm typecheck`, `pnpm test` (unit, jsdom), `pnpm test:components` (real browser; see `.claude/skills/web-component-tests/`), `pnpm check:tests`.
 
 ## Key design rules
 

@@ -26,6 +26,7 @@ build/
 node_modules/
 web/dist/
 web/coverage/
+web/.vitest/
 
 # Test evidence (may contain tokens until scrubbed)
 test-results/

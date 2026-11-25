@@ -5,7 +5,7 @@ const io = vi.hoisted(() =>
 );
 vi.mock("socket.io-client", () => ({ io }));
 
-import { openFleetSocket } from "../realtime/socket";
+import { openFleetSocket } from "./socket";
 
 describe("fleet socket", () => {
   it("sends the token in auth, never in the URL", () => {

@@ -36,12 +36,14 @@ Rules:
 - Another component's fakes are never imported. If two components need the same shape, share a **factory** instead.
 - **Factories** (`makeDrone()`, `makeAlert()`, `makeUser()` ...) build typed test data with overrides: `makeDrone({ link: "LOST" })`. They live in `web/src/testing/factories/`, one file per entity, and have no behaviour.
 - Network is faked at the HTTP layer (MSW), never by stubbing the API client module.
-- The socket is faked with `web/src/testing/fake-socket.ts`, which tests drive by calling the registered handlers.
+- The socket is faked with `web/src/testing/fake-socket.ts`, which tests drive by calling the registered handlers. Use it with `vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"))`.
+- Type fake endpoints with `Ok<path, method>` and `Body<path, method>` from `web/src/testing/api.ts` and build URLs with `apiUrl()`.
+- A fake db registers its `reset()` with `registerReset()` from `web/src/testing/reset.ts`; the setup file runs them after each test.
 
 ## Shared setup: `web/src/testing/setup-browser.ts`
 
 Global hooks only, registered once as the Vitest setup file:
-- start the MSW worker before all tests and stop it after;
+- start the MSW worker (`web/src/testing/worker.ts`) before all tests and stop it after;
 - after each test: reset the fake db, new Pinia, clear `localStorage`, remove `data-theme`, restore fake timers;
 - fail a test on any request no handler matched, and on any `console.error`.
 
@@ -51,28 +53,28 @@ It does not contain test data or a mount helper.
 
 ```ts
 // FleetList.test.ts
-import { page } from "@vitest/browser/context";
+import { page } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { createPinia } from "pinia";
 import { describe, expect, it } from "vitest";
 import FleetList from "./FleetList.vue";
 import { fakeDb, fakeEndpoints } from "./FleetList.fakes";
 import { makeDrone } from "../testing/factories/drone";
-import { worker } from "../testing/setup-browser";
+import { worker } from "../testing/worker";
 
 describe("FleetList", () => {
   it("shows a row with the battery and link state for each drone", async () => {
     fakeDb.drones.add(makeDrone({ id: "d1", battery_pct: 3 }));
     worker.use(...fakeEndpoints);
 
-    render(FleetList, { global: { plugins: [createPinia()] } });
+    await render(FleetList, { global: { plugins: [createPinia()] } });
 
-    await expect.element(page.getByTestId("fleet-row-d1")).toHaveTextContent("LOW");
+    await expect.element(page.getByTestId("fleet-row-battery-d1")).toHaveTextContent("LOW 3%");
   });
 });
 ```
 
-Adjust imports to the versions installed in `web/package.json`; keep the shape.
+Adjust imports to the versions installed in `web/package.json`; keep the shape. `render` is async: always `await` it. Import `worker` from `testing/worker.ts`, never from the setup file (a test that imports the setup file runs its hooks twice). `toHaveTextContent("x")` is an exact match; use `toMatchTextContent("x")` for a part of the text.
 
 ## Running the tests
 
@@ -81,26 +83,28 @@ Run everything from `web/`.
 | What | Command |
 |---|---|
 | Unit tests (stores, composables, pure functions; jsdom) | `pnpm test` |
-| Component tests, headless (what CI runs) | `pnpm exec vitest run --config vitest.browser.config.ts --browser.headless=true` |
-| One component file | add the path: `... src/components/PanelSplitter.test.ts` |
+| Component tests, headless (what CI runs) | `pnpm test:components` |
+| One component file | `pnpm test:components src/components/PanelSplitter.test.ts` |
 | One test by name | add `-t "Home and End"` |
-| Watch them in a visible browser | `pnpm exec vitest --watch --config vitest.browser.config.ts` |
+| Watch them in a visible browser, slowed down | `pnpm test:components:watch` |
+| Every `.vue` has a sibling test | `pnpm check:tests` (also in `make check`) |
 
 - **First time on a machine:** `pnpm exec playwright install chromium` (about 100 MB, Playwright's own Chromium, not your Chrome).
-- **Watching:** the component config opens a visible Chromium with `slowMo: 600` so actions can be followed. CI runs the same project headless with no slow motion. Press `q` to quit watch mode.
-- **Everything before a PR:** `pnpm lint && pnpm typecheck && pnpm test && <the headless component command> && pnpm build`.
+- **Watching:** `pnpm test:components:watch` opens a visible Chromium with `VITEST_SLOWMO=600` so actions can be followed. The component config is headless with no slow motion unless `VITEST_SLOWMO` (ms) is set. Press `q` to quit watch mode.
+- **Everything before a PR:** `pnpm lint && pnpm typecheck && pnpm test && pnpm test:components && pnpm build && pnpm check:tests`.
 - **Adding packages:** pnpm refuses versions published less than 7 days ago (`minimumReleaseAge` in `pnpm-workspace.yaml`). Pin a version older than that. Never exclude a package to get around it. Keep `vitest`, `@vitest/browser-playwright` and `vitest-browser-vue` on matching, compatible versions.
 
 ### Keep the two kinds of tests apart
 
 Both kinds are named `*.test.ts`, so the configs split them by location, not by suffix:
-- the **component** project includes `src/{components,views}/**/*.test.ts` and `src/App.test.ts`;
-- the **unit** project (`pnpm test`) includes everything else and excludes those paths.
+- the **component** project includes `src/{components,views}/[A-Z]*.test.ts` (a test named after its PascalCase `.vue` file) and `src/App.test.ts`;
+- the **unit** project (`pnpm test`) includes everything else and excludes those paths. A unit test of a plain module that lives in `components/` (`avatar.test.ts`, `tiles.test.ts`) is lowercase, so it stays in the unit project.
 
 A component test that shows up in `pnpm test` fails there, because it imports `vitest/browser`. Fix the include and exclude globs, not the test.
 
 ### Real-browser gotchas
 
+- Layout limits depend on the viewport; the component project runs at 1280x800.
 - A component alone on a page may have no size (a divider with no height, an absolutely positioned popup). Clicking it then waits until the test times out. Give it room in the test, or focus the element directly (`element.focus()`) when the behaviour is keyboard only.
 - Do not stub the canvas, `ResizeObserver` or layout APIs: they are real here.
 - To debug, watch it visibly with the command above, or run one file headed with `--browser.headless=false`.
