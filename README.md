@@ -56,11 +56,11 @@ make setup   # once: Python and web dependencies
 make env     # once: .env with generated secrets
 make up      # API, ingestor, Postgres, RabbitMQ, Redis
 make sim     # drone simulator (test profile)
-make seed    # 3 drones, registered and spawned in the simulator
+make seed    # 3 drones: registered, spawned in the simulator and sent on patrol missions (they fly circles)
 cd web && cp .env.example .env.local && pnpm dev   # http://localhost:5173
 ```
 
-Drones appear on the map; to see one move, fly it from Claude Code with the simulator tools (see below). `make seed` is idempotent. The dev server proxies `/api` and `/socket.io` to `SKYHAUL_API_URL` (default `http://127.0.0.1:8000`), so the API needs no CORS. A page reload means signing in again: the access token lives in memory only.
+`make seed` also starts the drones on patrol missions, so the markers move for several minutes. Run it again for another patrol. The dev server proxies `/api` and `/socket.io` to `SKYHAUL_API_URL` (default `http://127.0.0.1:8000`), so the API needs no CORS. A page reload means signing in again: the access token lives in memory only.
 
 ## Use the simulator from Claude Code
 

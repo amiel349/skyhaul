@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`make seed`: a local admin, a few registered drones, the same drones spawned in the simulator.
+"""`make seed`: a few registered drones, spawned in the simulator and sent on patrol missions.
 
 Local test profile only. Needs `make up` and `make sim` running. Idempotent: a second run
 creates nothing new. Secrets stay out of argv, logs and git:
@@ -13,6 +13,7 @@ creates nothing new. Secrets stay out of argv, logs and git:
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -103,6 +104,45 @@ def login(email: str, password: str) -> str:
     return str(body["access_token"])
 
 
+def patrol(index: int) -> list[dict[str, float]]:
+    """Two laps of a circle around the home point, 24 waypoints a lap (the API allows 50).
+
+    Each drone gets its own radius, altitude and start angle so the markers do not overlap.
+    At the simulator's 10 m/s cruise speed this is several minutes of movement.
+    """
+    radius_m = 300 + 150 * index
+    lat0, lon0 = DEFAULT_HOME["lat"], DEFAULT_HOME["lon"]
+    points = []
+    for step in range(48):
+        angle = math.radians(120 * index + (step % 24) * 15)
+        points.append(
+            {
+                "lat": round(lat0 + radius_m * math.sin(angle) / 111_320, 6),
+                "lon": round(
+                    lon0 + radius_m * math.cos(angle) / (111_320 * math.cos(math.radians(lat0))), 6
+                ),
+                "altitude_m": 40.0 + 10 * index,
+            }
+        )
+    return points
+
+
+def start_patrols(drones: list[dict[str, Any]], token: str) -> None:
+    """Launch a patrol mission for every drone that is not already flying one."""
+    started = 0
+    for index, drone in enumerate(drones):
+        mission = drone.get("mission")
+        if mission and mission.get("state") == "ACTIVE":
+            continue  # an earlier run is still flying it
+        body = {"drone_id": drone["drone_id"], "waypoints": patrol(index), "start": True}
+        status, _ = api("POST", "/missions", body, token)
+        if status in (200, 201, 202):
+            started += 1
+        else:
+            print(f"seed: could not start a patrol for {drone['drone_id']} (HTTP {status})")
+    print(f"Started {started} patrol missions: the drones fly circles for several minutes.")
+
+
 def main() -> None:
     email, password = dev_admin()
     token = login(email, password)
@@ -124,7 +164,8 @@ def main() -> None:
     print(
         f"Simulator: {len(drones)} drones in namespace '{NAMESPACE}'. Registered {registered} new."
     )
-    print(f"Sign in at the UI as {email} (password: DEV_ADMIN_PASSWORD in .env).")
+    start_patrols(drones, token)
+    print(f"Sign in at the UI as {email}.")
 
 
 if __name__ == "__main__":
