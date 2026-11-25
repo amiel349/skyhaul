@@ -27,12 +27,6 @@ OPENAPI_VERSION: Final = "3.1.0"
 # Contract paths not implemented yet, with the issue that brings them.
 PENDING_PATHS: Final = frozenset(
     {
-        "/auth/login",  # #25
-        "/auth/me",  # #25
-        "/users",  # #25
-        "/users/{user_id}",  # #25
-        "/drones",  # #25
-        "/drones/{drone_id}",  # #25
         "/drones/{drone_id}/telemetry",  # #27
         "/drones/{drone_id}/commands",  # #26
         "/commands/{command_id}",  # #26
@@ -44,7 +38,6 @@ PENDING_PATHS: Final = frozenset(
         "/missions/{mission_id}/cancel",  # #28
         "/alerts",  # #28
         "/alerts/{alert_id}/ack",  # #28
-        "/audit",  # #25
     }
 )
 
@@ -97,6 +90,38 @@ def schema_ref(name: str) -> dict[str, str]:
     return _schema(name)
 
 
+def json_body(name: str) -> dict[str, Any]:
+    """A required JSON request body of the contract schema ``name``."""
+    return {"required": True, "content": {"application/json": {"schema": _schema(name)}}}
+
+
+# Status -> the contract's shared response component.
+ERROR_RESPONSES: Final = {
+    400: "BadRequest",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "NotFound",
+    409: "Conflict",
+    413: "PayloadTooLarge",
+    415: "UnsupportedMediaType",
+    422: "Unprocessable",
+    429: "TooManyRequests",
+    503: "ServiceUnavailable",
+}
+
+# What every protected operation documents; operations with a body add BODY_ERRORS.
+PROTECTED_ERRORS: Final = (400, 401, 403, 429)
+BODY_ERRORS: Final = (413, 415, 422)
+
+
+def error_doc(*statuses: int) -> dict[str, Any]:
+    """``responses`` for ``Blueprint.doc``: a $ref to the shared component of each status."""
+    return {
+        str(status): {"$ref": f"#/components/responses/{ERROR_RESPONSES[status]}"}
+        for status in statuses
+    }
+
+
 class FleetApi(Api):  # type: ignore[misc]  # flask-smorest ships no type information
     # Errors are documented per operation, as in the contract; no generic "default" response.
     DEFAULT_ERROR_RESPONSE_NAME = None
@@ -135,6 +160,12 @@ def export_spec(app: Flask, contract: Mapping[str, Any]) -> dict[str, Any]:
         for path, item in spec["paths"].items()
         if path.startswith(API_PREFIX)
     }
+    path_parameters = _path_parameter_refs(contract)
+    for item in spec["paths"].values():
+        if "parameters" in item:
+            item["parameters"] = [
+                path_parameters.get((p.get("in"), p.get("name")), p) for p in item["parameters"]
+            ]
     own: dict[str, dict[str, Any]] = spec.get("components", {})
     components: dict[str, dict[str, Any]] = {}
     for kind, entries in contract.get("components", {}).items():
@@ -143,6 +174,16 @@ def export_spec(app: Flask, contract: Mapping[str, Any]) -> dict[str, Any]:
         components.setdefault(kind, {}).update(entries)
     spec["components"] = components
     return spec
+
+
+def _path_parameter_refs(contract: Mapping[str, Any]) -> dict[tuple[Any, Any], Any]:
+    """flask-smorest writes path parameters inline from the URL rule. The contract keeps them
+    as components, so a path parameter becomes a $ref to the component of the same name."""
+    refs: dict[tuple[Any, Any], Any] = {}
+    for name, parameter in contract.get("components", {}).get("parameters", {}).items():
+        if parameter.get("in") == "path":
+            refs[("path", parameter["name"])] = {"$ref": f"#/components/parameters/{name}"}
+    return refs
 
 
 def spec_differences(

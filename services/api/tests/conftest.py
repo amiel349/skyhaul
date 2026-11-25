@@ -13,6 +13,7 @@ from flask import Flask, jsonify, request
 from flask.testing import FlaskClient
 from jsonschema import Draft202012Validator
 from skyhaul_api import create_app
+from skyhaul_api.auth.permissions import public
 from skyhaul_api.config import Config
 
 CONTRACT_PATH = Path(__file__).resolve().parents[3] / "contracts" / "openapi" / "fleet-api.v1.json"
@@ -56,10 +57,12 @@ def app() -> Flask:
     )
 
     @app.post("/api/v1/_test/echo")
+    @public
     def echo() -> Any:
         return jsonify(request.get_json())
 
     @app.get("/api/v1/_test/fault")
+    @public
     def fault() -> Any:
         raise RuntimeError(FAULT_MARKER)
 

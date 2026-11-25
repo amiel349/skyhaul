@@ -10,11 +10,18 @@ from skyhaul_fleet_core.db import make_engine, make_session_factory
 from skyhaul_fleet_core.settings import SettingsError
 
 from skyhaul_api import health
+from skyhaul_api.audit import routes as audit_routes
+from skyhaul_api.auth import routes as auth_routes
+from skyhaul_api.auth.guard import init_guard
 from skyhaul_api.cli import init_cli
 from skyhaul_api.config import MAX_BODY_BYTES, Config, load_config
+from skyhaul_api.database import SESSIONS_KEY, init_database
+from skyhaul_api.drones import routes as drone_routes
 from skyhaul_api.errors import init_errors
 from skyhaul_api.logs import configure_logging, init_request_logging
 from skyhaul_api.openapi import API_PREFIX, make_api
+from skyhaul_api.ratelimit import init_rate_limits
+from skyhaul_api.users import routes as user_routes
 
 # gunicorn stops (instead of respawning the worker forever) when a worker exits with 3.
 BOOT_ERROR_EXIT_CODE = 3
@@ -38,9 +45,10 @@ def create_app(config: Config | None = None) -> Flask:
         config.redis_url, socket_timeout=REDIS_TIMEOUT_S, socket_connect_timeout=REDIS_TIMEOUT_S
     )
     app.extensions["skyhaul.engine"] = engine
-    app.extensions["skyhaul.sessions"] = make_session_factory(engine)
+    app.extensions[SESSIONS_KEY] = make_session_factory(engine)
     app.extensions["skyhaul.redis"] = redis_client
     app.extensions["skyhaul.config"] = config
+    init_rate_limits(app, config.redis_url)
 
     health.register_readiness_check(app, "db", health.database_check(engine))
     health.register_readiness_check(app, "redis", health.redis_check(redis_client))
@@ -59,11 +67,20 @@ def _create_routes_app() -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = MAX_BODY_BYTES
     init_request_logging(app)
     api = make_api(app)
-    api.register_blueprint(health.blp, url_prefix=API_PREFIX)
+    for blueprint in (
+        health.blp,
+        auth_routes.blp,
+        user_routes.blp,
+        drone_routes.blp,
+        audit_routes.blp,
+    ):
+        api.register_blueprint(blueprint, url_prefix=API_PREFIX)
     # Probes call the unprefixed paths too (compose healthcheck, k8s). Not in the spec.
     app.add_url_rule("/healthz", "healthz", app.view_functions["health.healthz"])
     app.add_url_rule("/readyz", "readyz", app.view_functions["health.readyz"])
     init_errors(app)
+    init_guard(app)
+    init_database(app)
     init_cli(app)
     return app
 

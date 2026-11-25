@@ -26,7 +26,7 @@ def test_spec_is_valid_matches_the_contract_and_the_check_fails_on_a_difference(
         (contract_path.parent / "meta" / "oas-3.1-schema-2022-10-07.json").read_text()
     )
     assert not list(Draft202012Validator(meta).iter_errors(exported))
-    assert set(exported["paths"]) == {"/healthz", "/readyz"}
+    assert {"/healthz", "/readyz", "/auth/login", "/drones"} <= set(exported["paths"])
 
     code, output = _spec("--check", "--contract", str(contract_path))
     assert code == 0, output
