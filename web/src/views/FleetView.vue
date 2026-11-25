@@ -4,12 +4,15 @@ import ConnectionBadge from "../components/ConnectionBadge.vue";
 import DronePanel from "../components/DronePanel.vue";
 import FleetList from "../components/FleetList.vue";
 import FleetMap from "../components/FleetMap.vue";
+import PanelSplitter from "../components/PanelSplitter.vue";
 import UserMenu from "../components/UserMenu.vue";
+import { useResizable } from "../layout/useResizable";
 import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 
 const auth = useAuthStore();
 const fleet = useFleetStore();
+const { sizes, limits, set, reset } = useResizable();
 
 onMounted(() => {
   void fleet.loadAll();
@@ -45,10 +48,34 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
     >
       No drones yet
     </p>
-    <main class="grid">
+    <main
+      class="grid"
+      :style="{ '--fleet-w': sizes.fleet + 'px', '--panel-w': sizes.panel + 'px', '--map-h': sizes.map + 'px' }"
+    >
       <FleetList class="area-list" />
+      <PanelSplitter
+        class="split-v"
+        :model-value="sizes.fleet"
+        :min="limits.fleet.min"
+        :max="limits.fleet.max"
+        orientation="vertical"
+        label="Resize fleet list"
+        testid="splitter-fleet-map"
+        @update:model-value="set('fleet', $event)"
+        @reset="reset('fleet')"
+      />
       <div class="area-map">
         <FleetMap />
+        <PanelSplitter
+          :model-value="sizes.map"
+          :min="limits.map.min"
+          :max="limits.map.max"
+          orientation="horizontal"
+          label="Resize map and alerts"
+          testid="splitter-map-alerts"
+          @update:model-value="set('map', $event)"
+          @reset="reset('map')"
+        />
         <section
           class="alerts"
           aria-labelledby="alerts-heading"
@@ -62,6 +89,18 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
           </p>
         </section>
       </div>
+      <PanelSplitter
+        class="split-v"
+        :model-value="sizes.panel"
+        :min="limits.panel.min"
+        :max="limits.panel.max"
+        orientation="vertical"
+        invert
+        label="Resize drone panel"
+        testid="splitter-map-panel"
+        @update:model-value="set('panel', $event)"
+        @reset="reset('panel')"
+      />
       <DronePanel class="area-panel" />
     </main>
   </div>
@@ -108,12 +147,19 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
 .area-map {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   min-width: 0;
+  min-height: 0;
+}
+.area-map > :first-child {
+  flex: none;
+  height: var(--map-h);
+}
+.split-v {
+  display: none;
 }
 .alerts {
   flex: 1;
-  min-height: 260px;
+  min-height: 120px;
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -142,7 +188,11 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
   .grid {
     flex: 1;
     min-height: 0;
-    grid-template-columns: 270px minmax(0, 1fr) 330px;
+    gap: 0;
+    grid-template-columns: var(--fleet-w) 12px minmax(0, 1fr) 12px var(--panel-w);
+  }
+  .split-v {
+    display: block;
   }
   .area-list {
     overflow-y: auto;

@@ -107,3 +107,9 @@ button {
     scroll-behavior: auto;
   }
 }
+
+/* While a splitter is dragged: no text selection anywhere. */
+body.is-resizing {
+  user-select: none;
+  -webkit-user-select: none;
+}

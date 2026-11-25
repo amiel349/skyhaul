@@ -21,6 +21,7 @@ const tileUrlAttr = computed(() => tileUrl() ?? "");
 
 let map: L.Map | null = null;
 let tiles: L.TileLayer | null = null;
+let sizeObserver: ResizeObserver | null = null;
 const markers = new Map<string, L.CircleMarker>();
 
 function labelNode(
@@ -107,6 +108,11 @@ onMounted(() => {
   }
   applyTiles();
   sync();
+  // The card can be resized by the splitters; Leaflet only needs to re-measure, not redraw.
+  if (typeof ResizeObserver !== "undefined") {
+    sizeObserver = new ResizeObserver(() => map?.invalidateSize());
+    sizeObserver.observe(container.value);
+  }
 });
 
 // One pass over the drones per change; only moved markers are touched, the map is not rebuilt.
@@ -123,6 +129,8 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  sizeObserver?.disconnect();
+  sizeObserver = null;
   map?.remove();
   map = null;
   tiles = null;
@@ -175,7 +183,8 @@ h2 {
 }
 .stage {
   position: relative;
-  height: clamp(300px, 42vh, 460px);
+  flex: 1;
+  min-height: 0;
 }
 .map {
   position: absolute;
