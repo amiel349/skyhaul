@@ -23,8 +23,10 @@ down: ## Stop the local stack
 	$(COMPOSE) --profile test down
 
 # `make down -v` would be make's own -v (--version), so the volume reset has its own target.
+# It addresses the stack by project name, not by compose file: the file needs every .env key to
+# interpolate, so an .env from before a new key was added would make `down` fail.
 down-volumes: ## Stop the local stack and delete its volumes (the database)
-	$(COMPOSE) --profile test down -v
+	docker compose -p skyhaul down -v --remove-orphans
 
 logs: ## Follow logs of the local stack
 	$(COMPOSE) logs -f
