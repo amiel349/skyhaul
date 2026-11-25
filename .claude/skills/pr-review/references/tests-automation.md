@@ -1,6 +1,6 @@
 # Tests and automation
 
-Applies to `tests/**`, `**/tests/**` and `web/**/*.spec.ts`. The test infrastructure is the centerpiece of this project; review it with the same rigor as product code. See ADR 0004.
+Applies to `tests/**`, `**/tests/**`, `web/**/*.spec.ts` and `web/**/*.test.ts`. The test infrastructure is the centerpiece of this project; review it with the same rigor as product code. See ADR 0004.
 
 ## The pyramid
 - Each behavior is proven at the lowest layer that can prove it: unit, then contract, integration, API E2E, and UI E2E last.

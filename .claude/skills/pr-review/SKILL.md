@@ -27,7 +27,7 @@ Map every changed path to its areas, then read only those reference files. Alway
 | `contracts/**`, any RabbitMQ publish/consume code | `references/contracts-messaging.md` |
 | `services/copilot/**`, `services/mcp_sim/**`, `tools/fake_llm/**`, `tools/triage/**`, `tests/evals/**` | `references/ai-llm.md` |
 | `web/**` | `references/frontend-vue.md` |
-| `tests/**`, `**/tests/**`, `web/**/*.spec.ts` | `references/tests-automation.md` |
+| `tests/**`, `**/tests/**`, `web/**/*.spec.ts`, `web/**/*.test.ts` | `references/tests-automation.md` |
 | `deploy/**`, `**/Dockerfile`, `.github/**`, `Makefile`, `pyproject.toml`, lockfiles, `.pre-commit-config.yaml` | `references/infra-ci.md` |
 | everything | `references/security.md` |
 

@@ -15,7 +15,7 @@ You edit `web/` only. If the API shape you need doesn't exist, ask the architect
 
 1. Read the issue, acceptance criteria and the design note.
 2. Build with Vue 3 `<script setup lang="ts">`, Pinia stores and the generated API client. No hand-written fetch calls for endpoints that exist in the OpenAPI spec.
-3. Write Vitest + Vue Testing Library tests for components and stores. Mock the network with MSW, not by stubbing modules.
+3. Write tests following the `web-component-tests` skill (component tests, fakes) and add store tests.
 4. Run `pnpm lint && pnpm typecheck && pnpm test && pnpm build` in `web/` and fix everything before reporting.
 
 ## Standards
