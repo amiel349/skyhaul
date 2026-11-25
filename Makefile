@@ -1,6 +1,10 @@
-COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
+# SKYHAUL_ENV picks the environment: dev (default) or prod. In dev, an optional git-ignored .env.dev is
+# layered over .env (later files win) and `make up` also starts the dev-only dev-admin service.
+SKYHAUL_ENV ?= dev
+DEV_ENV_FILE := $(if $(filter dev,$(SKYHAUL_ENV)),$(wildcard .env.dev))
+COMPOSE := docker compose --env-file .env $(addprefix --env-file ,$(DEV_ENV_FILE)) -f deploy/compose.yaml
 
-.PHONY: help setup env up sim down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -13,14 +17,19 @@ setup: ## Install Python and web dependencies and git hooks
 env: ## Create .env with generated secrets
 	./scripts/gen-env.sh
 
-up: ## Start the local stack
+up: ## Start the local stack (SKYHAUL_ENV=dev default; =prod skips .env.dev and the dev admin)
 	$(COMPOSE) up -d --build --wait
+# A run, not part of `up --wait`: --wait treats a one-shot that exited as a failure.
+	$(if $(filter dev,$(SKYHAUL_ENV)),$(COMPOSE) --profile dev run --rm dev-admin)
 
 sim: ## Start RabbitMQ and the drone simulator with its control API (test profile)
 	$(COMPOSE) --profile test up -d --build --wait rabbitmq drone-sim
 
+seed: ## Create a local admin and a few drones (needs make up and make sim)
+	python3 scripts/seed.py
+
 down: ## Stop the local stack
-	$(COMPOSE) --profile test down
+	$(COMPOSE) --profile dev --profile test down
 
 # `make down -v` would be make's own -v (--version), so the volume reset has its own target.
 # It addresses the stack by project name, not by compose file: the file needs every .env key to

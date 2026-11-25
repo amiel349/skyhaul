@@ -83,7 +83,7 @@ web/src/
 
 **Decision: Leaflet with the canvas renderer.** Reason: 200 markers is far below where WebGL pays off, and real DOM/canvas keeps both test layers simple. This changes the blueprint's MapLibre choice.
 
-- **Tiles:** never `tile.openstreetmap.org` from dev, CI or demos (its tile usage policy forbids app and heavy use). URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`; decided: CARTO basemaps (`light_all`, free, no key, attribution "© OpenStreetMap contributors © CARTO"), set in `web/.env.example`. A public demo (M7) needs a provider with a domain-locked key and a spend cap. **Tests load no network tiles:** Vitest has none, Playwright routes tile requests to a blank PNG.
+- **Tiles:** never `tile.openstreetmap.org` from dev, CI or demos (its tile usage policy forbids app and heavy use). URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`; decided: Stadia Maps `alidade_smooth` (no key needed on localhost, attribution "© Stadia Maps © OpenMapTiles © OpenStreetMap contributors"), set in `web/.env.example`. CARTO was tried first and now answers "API KEY REQUIRED". A public demo (M7) needs a provider with a domain-locked key and a spend cap. **Tests load no network tiles:** Vitest has none, Playwright routes tile requests to a blank PNG.
 - Markers are coloured by `flight_state` and `link`. Selecting a drone opens a side panel, not a Leaflet HTML popup.
 
 ## 6. Role-aware UI
@@ -118,7 +118,7 @@ web/src/
 - **Q1 Refresh (decided: accept the hard logout for M3):** no refresh endpoint or cookie, despite ADR 0011. Without it, reload means re-login. Needs a backend issue (httpOnly `SameSite=Strict` refresh cookie plus CSRF, as ADR 0011 planned) and its own ADR when designed.
 - **Q2 Mission and Alert have no `updated_at` or `version`,** so a late `mission.updated` or `alert.updated` cannot be told from a newer one. Interim: order by lifecycle rank (and `acknowledged_at`/`cleared_at` for alerts). Fix: a monotonic `version` field.
 - **Q3 Refetch cost:** `GET /drones` caps at 200 per page, so a refetch past 200 drones is several requests. Fine for M3; revisit in M4.
-- **Q4 Tile provider (decided):** CARTO, no key.
+- **Q4 Tile provider (decided):** Stadia, no key on localhost; the M7 demo needs a domain-locked key.
 - **Q5 Logout is client-side only** (drop the token). No revocation, so a stolen token lives up to 15 minutes. Acceptable while Q1 is open.
 
 ## 11. Slice plan

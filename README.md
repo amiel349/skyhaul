@@ -49,6 +49,19 @@ rm .env && make env   # new secrets for every key; or add the new keys to .env w
 make up
 ```
 
+## Run the UI locally
+
+```sh
+make setup   # once: Python and web dependencies
+make env     # once: .env with generated secrets
+make up      # API, ingestor, Postgres, RabbitMQ, Redis
+make sim     # drone simulator (test profile)
+make seed    # 3 drones: registered, spawned in the simulator and sent on patrol missions (they fly circles)
+cd web && cp .env.example .env.local && pnpm dev   # http://localhost:5173
+```
+
+`make seed` also starts the drones on patrol missions, so the markers move for several minutes. Run it again for another patrol. The dev server proxies `/api` and `/socket.io` to `SKYHAUL_API_URL` (default `http://127.0.0.1:8000`), so the API needs no CORS. A page reload means signing in again: the access token lives in memory only.
+
 ## Use the simulator from Claude Code
 
 The repo's `.mcp.json` registers the `skyhaul-sim` MCP server (`services/mcp_sim/`, stdio). It holds only `${VAR}` references; the server reads its secrets from the environment Claude Code starts in, and never reads `.env`.
