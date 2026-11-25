@@ -14,6 +14,7 @@ members = [
     "skyhaul-contracts",
     "skyhaul-drone-sim",
     "skyhaul-fleet-core",
+    "skyhaul-ingestor",
     "skyhaul-mcp-sim",
 ]
 
@@ -2170,6 +2171,7 @@ dependencies = [
     { name = "skyhaul-contracts" },
     { name = "skyhaul-drone-sim" },
     { name = "skyhaul-fleet-core" },
+    { name = "skyhaul-ingestor" },
     { name = "skyhaul-mcp-sim" },
 ]
 
@@ -2192,6 +2194,7 @@ requires-dist = [
     { name = "skyhaul-contracts", editable = "contracts" },
     { name = "skyhaul-drone-sim", editable = "services/drone_sim" },
     { name = "skyhaul-fleet-core", editable = "services/fleet_core" },
+    { name = "skyhaul-ingestor", editable = "services/ingestor" },
     { name = "skyhaul-mcp-sim", editable = "services/mcp_sim" },
 ]
 
@@ -2289,6 +2292,27 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.8" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "skyhaul-contracts", editable = "contracts" },
+    { name = "sqlalchemy", specifier = ">=2.1.8" },
+]
+
+[[package]]
+name = "skyhaul-ingestor"
+version = "0.0.0"
+source = { editable = "services/ingestor" }
+dependencies = [
+    { name = "pika" },
+    { name = "redis" },
+    { name = "skyhaul-contracts" },
+    { name = "skyhaul-fleet-core" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pika", specifier = ">=1.4.4,<2" },
+    { name = "redis", specifier = ">=8.1.0" },
+    { name = "skyhaul-contracts", editable = "contracts" },
+    { name = "skyhaul-fleet-core", editable = "services/fleet_core" },
     { name = "sqlalchemy", specifier = ">=2.1.8" },
 ]
 
