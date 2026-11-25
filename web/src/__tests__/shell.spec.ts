@@ -133,7 +133,7 @@ describe("visual shell", () => {
     expect(screen.queryByTestId("user-menu")).toBeNull();
   });
 
-  it("applies the theme chosen in the menu at once and marks it", async () => {
+  it("switches the theme with the toggle in the menu at once", async () => {
     document.documentElement.removeAttribute("data-theme");
     localStorage.clear();
     await mountView([drone("d1")]);
@@ -141,12 +141,14 @@ describe("visual shell", () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId("user-avatar"));
-    expect(screen.getByTestId("theme-option-dark").getAttribute("aria-checked")).toBe("true");
-    await user.click(screen.getByTestId("theme-option-light"));
+    expect(screen.getByTestId("theme-toggle").getAttribute("aria-checked")).toBe("true"); // dark mode on
+    await user.click(screen.getByTestId("theme-toggle"));
 
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(screen.getByTestId("theme-option-light").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("theme-toggle").getAttribute("aria-checked")).toBe("false");
     expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    await user.click(screen.getByTestId("theme-toggle"));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     document.documentElement.removeAttribute("data-theme");
   });
 

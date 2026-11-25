@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useAuthStore } from "../stores/auth";
-import { useThemeStore, type Theme } from "../theme/theme";
+import { useThemeStore } from "../theme/theme";
 import { avatarColor, initialsOf } from "./avatar";
 
 const auth = useAuthStore();
@@ -14,11 +14,6 @@ const menu = ref<HTMLElement | null>(null);
 const email = computed(() => auth.user?.email ?? "");
 const initials = computed(() => initialsOf(email.value));
 const color = computed(() => avatarColor(email.value));
-const options: { value: Theme; label: string; testid: string }[] = [
-  { value: "dark", label: "Dark", testid: "theme-option-dark" },
-  { value: "light", label: "Light", testid: "theme-option-light" },
-];
-
 function items(): HTMLElement[] {
   return Array.from(menu.value?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []);
 }
@@ -63,8 +58,10 @@ function onFocusOut(event: FocusEvent): void {
   if (open.value && next && root.value && !root.value.contains(next)) close(false);
 }
 
-function choose(value: Theme): void {
-  theme.set(value); // the menu stays open so the change can be seen
+const isDark = computed(() => theme.resolved === "dark");
+
+function toggleTheme(): void {
+  theme.set(isDark.value ? "light" : "dark"); // the menu stays open so the change can be seen
 }
 
 function logout(): void {
@@ -111,28 +108,22 @@ function logout(): void {
           data-testid="user-menu-role"
         >{{ auth.user?.role }}</span>
       </div>
-      <div
-        class="group"
-        role="group"
-        aria-label="Theme"
-      >
-        <span class="label">Theme</span>
+      <div class="group">
         <button
-          v-for="option in options"
-          :key="option.value"
           type="button"
-          role="menuitemradio"
-          class="item"
-          :aria-checked="theme.resolved === option.value"
-          :data-testid="option.testid"
+          role="menuitemcheckbox"
+          class="item toggle"
+          :aria-checked="isDark"
+          data-testid="theme-toggle"
           tabindex="-1"
-          @click="choose(option.value)"
+          @click="toggleTheme"
         >
+          <span class="toggle-label">Dark mode</span>
           <span
-            class="mark"
+            class="switch"
+            :class="{ on: isDark }"
             aria-hidden="true"
-          >{{ theme.resolved === option.value ? "✓" : "" }}</span>
-          {{ option.label }}
+          ><span class="thumb" /></span>
         </button>
       </div>
       <button
@@ -206,13 +197,6 @@ function logout(): void {
   margin-bottom: 4px;
   padding-bottom: 4px;
 }
-.label {
-  padding: 4px 10px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
 .item {
   display: flex;
   gap: 8px;
@@ -232,6 +216,42 @@ function logout(): void {
 .mark {
   display: inline-block;
   width: 1em;
-  color: var(--accent);
+}
+.toggle {
+  justify-content: space-between;
+}
+.switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--line);
+  border: 1px solid var(--muted);
+  transition: background 0.15s;
+  flex: none;
+}
+.switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 0.15s;
+}
+.switch.on .thumb {
+  transform: translateX(16px);
+  background: var(--bg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .thumb {
+    transition: none;
+  }
 }
 </style>
