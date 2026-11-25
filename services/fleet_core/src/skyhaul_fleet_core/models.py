@@ -228,7 +228,11 @@ class Telemetry(Base):
     and retention deletes in bulk."""
 
     __tablename__ = "telemetry"
-    __table_args__ = (Index("ix_telemetry_drone_id_type_ts", "drone_id", "type", text("ts DESC")),)
+    __table_args__ = (
+        Index("ix_telemetry_drone_id_type_ts", "drone_id", "type", text("ts DESC")),
+        # Retention deletes by ts alone; without this every batch scans the table.
+        Index("ix_telemetry_ts", "ts"),
+    )
 
     msg_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     drone_id: Mapped[str]

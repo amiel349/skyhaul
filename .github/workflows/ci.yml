@@ -129,14 +129,14 @@ jobs:
         run: ./scripts/gen-env.sh
       - name: Validate compose file
         run: docker compose --env-file .env -f deploy/compose.yaml config --quiet
-      - name: Smoke test the API stack (migrate, then api)
+      - name: Smoke test the API stack (migrate, then api and ingestor)
         run: |
-          docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait postgres rabbitmq redis migrate api
+          docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait postgres rabbitmq redis migrate api ingestor
           curl -sf http://127.0.0.1:8000/healthz
           curl -sf http://127.0.0.1:8000/readyz
       - name: API logs on failure
         if: failure()
-        run: docker compose --env-file .env -f deploy/compose.yaml logs migrate api
+        run: docker compose --env-file .env -f deploy/compose.yaml logs migrate api ingestor
       - name: Smoke test the simulator (make sim)
         run: |
           make sim

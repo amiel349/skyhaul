@@ -8,6 +8,7 @@ dependencies = [
     "skyhaul-contracts",
     "skyhaul-drone-sim",
     "skyhaul-fleet-core",
+    "skyhaul-ingestor",
     "skyhaul-mcp-sim",
 ]
 
@@ -22,6 +23,7 @@ skyhaul-api = { workspace = true }
 skyhaul-contracts = { workspace = true }
 skyhaul-drone-sim = { workspace = true }
 skyhaul-fleet-core = { workspace = true }
+skyhaul-ingestor = { workspace = true }
 skyhaul-mcp-sim = { workspace = true }
 
 [dependency-groups]
