@@ -39,6 +39,16 @@ make up      # local stack on 127.0.0.1
 make check   # lint, types, tests, secret scan
 ```
 
+`make up` runs two one-shots before the API and the ingestor start: `migrate` (Alembic, as the schema owner `skyhaul_owner`) and `broker-init` (creates the broker users `skyhaul_api` and `skyhaul_ingestor` and declares the whole RabbitMQ topology). Every service then connects with its own least-privilege Postgres role and broker user (ADR 0013). The API serves REST on `127.0.0.1:8000/api/v1` and Socket.IO namespace `/fleet` on the same port; clients pass the access token as `auth: {token}`.
+
+**Upgrading a stack from before M2 realtime (#29):** existing stacks need `make down -v` once, that is `docker compose down -v` (run it as `make down-volumes`: plain `make down -v` is make's own version flag). The Postgres roles come from an init script that runs only on a fresh volume, and `.env` needs the new keys (`DB_OWNER_PASSWORD`, `DB_API_PASSWORD`, `DB_INGESTOR_PASSWORD`, `AMQP_API_PASSWORD`, `AMQP_INGESTOR_PASSWORD`). Once:
+
+```sh
+make down-volumes     # docker compose down -v: drops the local database volume
+rm .env && make env   # new secrets for every key; or add the new keys to .env with your own random values
+make up
+```
+
 ## Use the simulator from Claude Code
 
 The repo's `.mcp.json` registers the `skyhaul-sim` MCP server (`services/mcp_sim/`, stdio). It holds only `${VAR}` references; the server reads its secrets from the environment Claude Code starts in, and never reads `.env`.

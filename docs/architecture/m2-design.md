@@ -205,6 +205,7 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
   - **The room comes from the event name, never from the payload**, so a payload cannot redirect an emit.
   - `command.updated` goes to `role:dispatcher` and `role:admin` only; everything else goes to `fleet`.
 - **Scaling:** one API process in M2 (section 1). More workers (M4) need `message_queue=redis://` and sticky sessions.
+- **As built (#29, `skyhaul_api/realtime/`):** `async_mode="threading"`; under gunicorn's `gthread` worker each socket holds one of the 32 threads, and WebSocket goes through `simple-websocket`. Refusals answer `connect_error` with `{"message": "unauthorized"}` or `{"message": "token_expired"}`; a `token` in the query string is refused even with a valid `auth`. The sweep (`SOCKET_SWEEP_S`, default 30) also disconnects users disabled since connect. The API's own command changes (SENT, FAILED) are pushed as `command.updated` too, so every status change reaches the socket.
 
 ## 10. Least privilege
 
@@ -219,10 +220,11 @@ The contract is [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/
 | admin (`RABBITMQ_USER`) | used by `broker-init`, and in M2 still by the simulator and MCP server (test profile only) | | |
 
 **Postgres:**
-- `deploy/postgres/initdb.d/10-roles.sh` creates the roles from env passwords. It runs on a fresh volume only, so existing local stacks need `make down -v` once.
+- `deploy/postgres/initdb.d/10-roles.sh` creates the roles from env passwords (CONNECT and schema USAGE only; the owner gets the `public` schema). It runs on a fresh volume only, so existing local stacks need `make down -v` (`make down-volumes`) once.
+- The table grants come with the tables, from migration `0005_service_role_grants` (later tables add theirs in their own migration); a database without the roles skips them.
 - `skyhaul_owner` owns the schema and runs Alembic through a one-shot `migrate` service.
-- `skyhaul_api`: SELECT/INSERT/UPDATE on the app tables, INSERT on `audit_log`, no DDL, no DELETE except soft deletes via UPDATE.
-- `skyhaul_ingestor`: INSERT on `telemetry`, `alerts` and `mission_events`; UPDATE on `commands`, `missions` and `alerts`; DELETE on `telemetry`; SELECT on `drones`, `missions`, `commands` and `alerts` (`UPDATE ... RETURNING` and `ON CONFLICT ... RETURNING` on alerts need it; added with #28).
+- `skyhaul_api`: SELECT/INSERT/UPDATE on the app tables, SELECT on `telemetry`, INSERT and SELECT (for `GET /audit`) on `audit_log` with no UPDATE or DELETE, no DDL, no DELETE except soft deletes via UPDATE.
+- `skyhaul_ingestor`: INSERT on `telemetry`, `alerts` and `mission_events`; UPDATE on `commands`, `missions` and `alerts`; DELETE on `telemetry`; SELECT on `drones`, `missions`, `commands`, `alerts` and `telemetry` (the retention DELETE's WHERE needs it) (`UPDATE ... RETURNING` and `ON CONFLICT ... RETURNING` on alerts need it; added with #28).
 - None of them is a superuser or `CREATEROLE`.
 
 **Redis:** `requirepass` as today.
