@@ -74,6 +74,37 @@ describe("FleetList", () => {
 
 Adjust imports to the versions installed in `web/package.json`; keep the shape.
 
+## Running the tests
+
+Run everything from `web/`.
+
+| What | Command |
+|---|---|
+| Unit tests (stores, composables, pure functions; jsdom) | `pnpm test` |
+| Component tests, headless (what CI runs) | `pnpm exec vitest run --config vitest.browser.config.ts --browser.headless=true` |
+| One component file | add the path: `... src/components/PanelSplitter.test.ts` |
+| One test by name | add `-t "Home and End"` |
+| Watch them in a visible browser | `pnpm exec vitest --watch --config vitest.browser.config.ts` |
+
+- **First time on a machine:** `pnpm exec playwright install chromium` (about 100 MB, Playwright's own Chromium, not your Chrome).
+- **Watching:** the component config opens a visible Chromium with `slowMo: 600` so actions can be followed. CI runs the same project headless with no slow motion. Press `q` to quit watch mode.
+- **Everything before a PR:** `pnpm lint && pnpm typecheck && pnpm test && <the headless component command> && pnpm build`.
+- **Adding packages:** pnpm refuses versions published less than 7 days ago (`minimumReleaseAge` in `pnpm-workspace.yaml`). Pin a version older than that. Never exclude a package to get around it. Keep `vitest`, `@vitest/browser-playwright` and `vitest-browser-vue` on matching, compatible versions.
+
+### Keep the two kinds of tests apart
+
+Both kinds are named `*.test.ts`, so the configs split them by location, not by suffix:
+- the **component** project includes `src/{components,views}/**/*.test.ts` and `src/App.test.ts`;
+- the **unit** project (`pnpm test`) includes everything else and excludes those paths.
+
+A component test that shows up in `pnpm test` fails there, because it imports `vitest/browser`. Fix the include and exclude globs, not the test.
+
+### Real-browser gotchas
+
+- A component alone on a page may have no size (a divider with no height, an absolutely positioned popup). Clicking it then waits until the test times out. Give it room in the test, or focus the element directly (`element.focus()`) when the behaviour is keyboard only.
+- Do not stub the canvas, `ResizeObserver` or layout APIs: they are real here.
+- To debug, watch it visibly with the command above, or run one file headed with `--browser.headless=false`.
+
 ## Before you finish a component change
 
 - [ ] `Foo.vue` has `Foo.test.ts` beside it, rendering only `Foo`.
