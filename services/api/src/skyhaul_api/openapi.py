@@ -27,8 +27,6 @@ OPENAPI_VERSION: Final = "3.1.0"
 # Contract paths not implemented yet, with the issue that brings them.
 PENDING_PATHS: Final = frozenset(
     {
-        "/drones/{drone_id}/commands",  # #26
-        "/commands/{command_id}",  # #26
         "/missions",  # #28
         "/missions/{mission_id}",  # #28
         "/missions/{mission_id}/events",  # #28

@@ -18,6 +18,7 @@ class IngestorConfig:
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "/"
     retention_days: int = 7
+    command_timeout_s: int = 10
     # Dev stack only, until broker-init (#29) declares the topology. Off by default: the
     # ingestor declares nothing and exits if its queue is missing.
     declare_queue: bool = False
@@ -34,5 +35,6 @@ def load_config() -> IngestorConfig:
         rabbitmq_port=optional_int("RABBITMQ_PORT", 5672),
         rabbitmq_vhost=os.environ.get("RABBITMQ_VHOST", "") or "/",
         retention_days=optional_int("TELEMETRY_RETENTION_DAYS", 7),
+        command_timeout_s=optional_int("COMMAND_TIMEOUT_S", 10),
         declare_queue=os.environ.get("INGESTOR_DECLARE_QUEUE", "0") == "1",
     )

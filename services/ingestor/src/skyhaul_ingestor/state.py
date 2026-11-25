@@ -59,6 +59,15 @@ class StateWriter:
         pipe.execute()
         return len(latest)
 
+    def publish(self, events: Sequence[dict[str, Any]]) -> None:
+        """Publish ``{"event", "data"}`` items on the events channel, in order."""
+        if not events:
+            return
+        pipe = self._client.pipeline(transaction=False)
+        for event in events:
+            pipe.publish(EVENTS_CHANNEL, json.dumps(event))
+        pipe.execute()
+
 
 def _args(update: StateUpdate, seen: str) -> list[str | int]:
     args: list[str | int] = [update.group, update.ts, seen, STATE_TTL_S]

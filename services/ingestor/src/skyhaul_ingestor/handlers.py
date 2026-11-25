@@ -10,6 +10,7 @@ from typing import Any, Final
 from pydantic import BaseModel
 from skyhaul_contracts.message import Message, parse_ts
 from skyhaul_contracts.types import MessageType
+from skyhaul_fleet_core.models import CommandStatus
 
 STORED: Final = frozenset(
     {MessageType.POSITION, MessageType.BATTERY, MessageType.MISSION_STATUS, MessageType.ALERT}
@@ -26,16 +27,46 @@ class StateUpdate:
 
 
 @dataclass(frozen=True)
+class Reply:
+    """A drone's ACK or NACK, applied to the command it names (if that drone sent it)."""
+
+    command_id: uuid.UUID
+    drone_id: str
+    status: CommandStatus
+    replied_at: datetime
+    nack_reason: str | None = None
+    nack_detail: str | None = None
+
+
+@dataclass(frozen=True)
 class Handled:
     row: dict[str, Any] | None
     state: StateUpdate | None
+    reply: Reply | None = None
 
 
 def handle(msg: Message[BaseModel], received_at: datetime) -> Handled:
-    """ACK and NACK give neither (M2-3 adds their handler); HEARTBEAT gives state only."""
+    """Stored types give a row, HEARTBEAT gives state only, ACK and NACK give a reply."""
     payload = msg.payload.model_dump(mode="json")
     row = _row(msg, payload, received_at) if msg.type in STORED else None
-    return Handled(row, _state(msg.type, msg.ts, payload))
+    return Handled(row, _state(msg.type, msg.ts, payload), _reply(msg, payload, received_at))
+
+
+def _reply(msg: Message[BaseModel], payload: dict[str, Any], received_at: datetime) -> Reply | None:
+    if msg.type not in (MessageType.ACK, MessageType.NACK):
+        return None
+    command_id = uuid.UUID(payload["command_msg_id"])
+    if msg.type is MessageType.ACK:
+        return Reply(command_id, msg.drone_id, CommandStatus.ACKED, received_at)
+    return Reply(
+        command_id,
+        msg.drone_id,
+        CommandStatus.NACKED,
+        received_at,
+        # Plain text data, stored as is and never interpreted.
+        nack_reason=payload["reason"],
+        nack_detail=payload["detail"],
+    )
 
 
 def _row(msg: Message[BaseModel], payload: dict[str, Any], received_at: datetime) -> dict[str, Any]:

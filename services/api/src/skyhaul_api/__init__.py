@@ -6,6 +6,7 @@ import sys
 
 import redis
 from flask import Flask
+from skyhaul_contracts.codec import Codec
 from skyhaul_fleet_core.db import make_engine, make_session_factory
 from skyhaul_fleet_core.settings import SettingsError
 
@@ -14,6 +15,8 @@ from skyhaul_api.audit import routes as audit_routes
 from skyhaul_api.auth import routes as auth_routes
 from skyhaul_api.auth.guard import init_guard
 from skyhaul_api.cli import init_cli
+from skyhaul_api.commands import routes as command_routes
+from skyhaul_api.commands.publisher import CommandPublisher, broker_connect
 from skyhaul_api.config import MAX_BODY_BYTES, Config, load_config
 from skyhaul_api.database import SESSIONS_KEY, init_database
 from skyhaul_api.drones import routes as drone_routes
@@ -29,11 +32,11 @@ BOOT_ERROR_EXIT_CODE = 3
 REDIS_TIMEOUT_S = 2
 
 
-def create_app(config: Config | None = None) -> Flask:
+def create_app(config: Config | None = None, publisher: CommandPublisher | None = None) -> Flask:
     """The fleet API. Without ``config`` it reads the environment and exits on a bad setting.
 
-    It does not connect at boot: with Postgres or Redis down it starts, and ``/readyz``
-    answers 503.
+    It does not connect at boot: with Postgres, Redis or RabbitMQ down it starts, and
+    ``/readyz`` answers 503. The command publisher thread connects in the background.
     """
     if config is None:
         config = _config_or_exit()
@@ -52,8 +55,20 @@ def create_app(config: Config | None = None) -> Flask:
 
     health.register_readiness_check(app, "db", health.database_check(engine))
     health.register_readiness_check(app, "redis", health.redis_check(redis_client))
-    # The command publisher arrives with #26, which replaces this with its own check.
-    health.register_readiness_check(app, "publisher", None)
+    if publisher is None:
+        publisher = CommandPublisher(
+            broker_connect(
+                config.rabbitmq_host,
+                config.rabbitmq_port,
+                config.rabbitmq_vhost,
+                config.rabbitmq_user,
+                config.rabbitmq_password,
+            )
+        )
+        publisher.start()
+    app.extensions[command_routes.PUBLISHER_KEY] = publisher
+    app.extensions[command_routes.CODEC_KEY] = Codec()
+    health.register_readiness_check(app, "publisher", lambda: publisher.connected)
     return app
 
 
@@ -72,6 +87,7 @@ def _create_routes_app() -> Flask:
         auth_routes.blp,
         user_routes.blp,
         drone_routes.blp,
+        command_routes.blp,
         audit_routes.blp,
     ):
         api.register_blueprint(blueprint, url_prefix=API_PREFIX)

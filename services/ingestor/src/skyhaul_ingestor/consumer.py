@@ -33,7 +33,7 @@ from skyhaul_ingestor.config import IngestorConfig
 from skyhaul_ingestor.handlers import handle
 from skyhaul_ingestor.registry import RegistryCache
 from skyhaul_ingestor.state import StateWriter
-from skyhaul_ingestor.watchdog import Retention
+from skyhaul_ingestor.watchdog import CommandSweeper, Retention
 
 PREFETCH: Final = 1000
 POLL_S: Final = 0.05
@@ -57,6 +57,7 @@ class Ingestor:
         flusher: Flusher,
         retention: Retention,
         counters: Counter[str],
+        sweeper: CommandSweeper | None = None,
         codec: Codec | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -65,6 +66,7 @@ class Ingestor:
         self.counters = counters
         self._flusher = flusher
         self._retention = retention
+        self._sweeper = sweeper
         self._codec = codec or Codec()
         self._clock = clock
         self._wall_clock = wall_clock
@@ -87,6 +89,8 @@ class Ingestor:
         if self.batch.due(now) and now >= self._retry_at:
             self.flush(channel)
         self._retention.maybe_run(now)
+        if self._sweeper is not None:
+            self._sweeper.maybe_run(now)
         if now >= self._stats_at:
             self._stats_at = now + STATS_EVERY_S
             log.info("ingestor stats", extra={"counters": dict(self.counters)})
@@ -111,8 +115,10 @@ def build(config: IngestorConfig) -> Ingestor:
         config.redis_url, socket_timeout=REDIS_TIMEOUT_S, socket_connect_timeout=REDIS_TIMEOUT_S
     )
     counters: Counter[str] = Counter()
-    flusher = Flusher(sessions, RegistryCache(), StateWriter(client), counters)
-    return Ingestor(flusher, Retention(sessions, config.retention_days), counters)
+    state = StateWriter(client)
+    flusher = Flusher(sessions, RegistryCache(), state, counters)
+    sweeper = CommandSweeper(sessions, state, config.command_timeout_s)
+    return Ingestor(flusher, Retention(sessions, config.retention_days), counters, sweeper)
 
 
 def run(config: IngestorConfig, stop: threading.Event, ingestor: Ingestor | None = None) -> int:

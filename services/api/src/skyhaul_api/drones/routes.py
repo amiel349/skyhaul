@@ -181,7 +181,7 @@ def create_drone() -> Response:
 @blp.response(200, schema_ref("Drone"), description="OK", headers=REQUEST_ID_HEADERS)
 @require(Permission.FLEET_READ)
 def get_drone(drone_id: str) -> Response:
-    drone = _live_drone(drone_id)
+    drone = live_drone(drone_id)
     return jsonify(drone_json(drone, live_states([drone.id])[0]))
 
 
@@ -196,7 +196,7 @@ def get_drone(drone_id: str) -> Response:
 @blp.response(200, schema_ref("TelemetryRecordPage"), description="OK", headers=REQUEST_ID_HEADERS)
 @require(Permission.FLEET_READ)
 def list_telemetry(drone_id: str) -> Response:
-    drone = _live_drone(drone_id)
+    drone = live_drone(drone_id)
     limit, cursor = page_args()
     statement = select(Telemetry).where(Telemetry.drone_id == drone.id)
     kind = request.args.get("type")
@@ -232,7 +232,7 @@ def list_telemetry(drone_id: str) -> Response:
 @blp.response(204, description="Deleted")
 @require(Permission.DRONE_ADMIN)
 def delete_drone(drone_id: str) -> Response:
-    drone = _live_drone(drone_id)
+    drone = live_drone(drone_id)
     session = db()
     drone.deleted_at = datetime.now(UTC)
     _audit(session, "drone.delete", drone.id)
@@ -240,7 +240,7 @@ def delete_drone(drone_id: str) -> Response:
     return Response(status=204)
 
 
-def _live_drone(drone_id: str) -> Drone:
+def live_drone(drone_id: str) -> Drone:
     drone = db().get(Drone, drone_id)
     if drone is None or drone.deleted_at is not None:
         raise ApiError(404, "not_found", "The drone does not exist.")

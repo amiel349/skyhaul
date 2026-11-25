@@ -145,7 +145,9 @@ def test_every_protected_route_without_a_token_is_401(app: Flask, client: FlaskC
     ]
     assert protected
     for method, path in protected:
-        url = API_PREFIX + path.replace("{user_id}", str(uuid.uuid4())).replace("{drone_id}", "d-1")
+        # Every path id is a UUID except the drone id.
+        path = re.sub(r"\{(?!drone_id)\w+_id\}", str(uuid.uuid4()), path)
+        url = API_PREFIX + path.replace("{drone_id}", "d-1")
         for headers in ({}, {"Authorization": "Bearer not-a-token"}, {"Authorization": "Basic x"}):
             response = client.open(url, method=method, headers=headers)
             assert response.status_code == 401, (method, path, headers)
