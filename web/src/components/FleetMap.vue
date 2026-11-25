@@ -1,25 +1,27 @@
 <script setup lang="ts">
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { useThemeStore } from "../theme/theme";
-import { baseStyle, markerLook } from "./markerStyle";
+import { markerLook } from "./markerStyle";
+import { DEFAULT_ATTRIBUTION, tileUrlFor } from "./tiles";
 
-type GeoData = Parameters<typeof L.geoJSON>[0];
-
-const OSM_ATTRIBUTION = "© OpenStreetMap contributors (ODbL)";
+function tileUrl(): string | undefined {
+  return tileUrlFor(theme.resolved, import.meta.env.MODE, import.meta.env.VITE_TILE_URL);
+}
 
 const fleet = useFleetStore();
 const selection = useSelectionStore();
 const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
-const baseState = ref<"loading" | "ready" | "unavailable">("loading");
+const tileUrlAttr = computed(() => tileUrl() ?? "");
 
 let map: L.Map | null = null;
-let base: L.GeoJSON | null = null;
+let tiles: L.TileLayer | null = null;
+let sizeObserver: ResizeObserver | null = null;
 const markers = new Map<string, L.CircleMarker>();
 
 function labelNode(
@@ -82,24 +84,12 @@ function sync(): void {
   markerCount.value = markers.size;
 }
 
-function restyleBase(): void {
-  base?.setStyle((feature) => baseStyle(feature?.properties?.kind as string | undefined));
-}
-
-async function loadBase(): Promise<void> {
-  try {
-    // Raw text, parsed here: Vite only treats .json as a JSON module, and a bad file lands in the catch below.
-    const data = JSON.parse((await import("../assets/basemap.geojson?raw")).default) as GeoData;
-    if (!map) return; // unmounted while loading
-    base = L.geoJSON(data, {
-      interactive: false,
-      style: (feature) => baseStyle(feature?.properties?.kind as string | undefined),
-    }).addTo(map);
-    base.bringToBack();
-    baseState.value = "ready";
-  } catch {
-    baseState.value = "unavailable"; // markers stay on the plain themed background
-  }
+function applyTiles(): void {
+  if (!map) return;
+  const url = tileUrl();
+  if (!url) return;
+  if (tiles) tiles.setUrl(url);
+  else tiles = L.tileLayer(url, { maxZoom: 19 }).addTo(map);
 }
 
 onMounted(() => {
@@ -110,17 +100,19 @@ onMounted(() => {
     zoom: 13,
     attributionControl: false,
   });
-  L.control.attribution({ prefix: false }).addAttribution(OSM_ATTRIBUTION).addTo(map);
-  // Tiles are optional and go on top of the local layer. Tests never load them, even if a local .env sets the URL.
-  const tileUrl: string | undefined = import.meta.env.MODE === "test" ? undefined : import.meta.env.VITE_TILE_URL;
-  if (tileUrl) {
-    L.tileLayer(tileUrl, {
-      attribution: import.meta.env.VITE_TILE_ATTRIBUTION ?? "",
-      maxZoom: 19,
-    }).addTo(map);
+  const attribution = import.meta.env.VITE_TILE_URL
+    ? (import.meta.env.VITE_TILE_ATTRIBUTION ?? "")
+    : DEFAULT_ATTRIBUTION;
+  if (import.meta.env.MODE !== "test") {
+    L.control.attribution({ prefix: false }).addAttribution(attribution).addTo(map);
   }
+  applyTiles();
   sync();
-  void loadBase();
+  // The card can be resized by the splitters; Leaflet only needs to re-measure, not redraw.
+  if (typeof ResizeObserver !== "undefined") {
+    sizeObserver = new ResizeObserver(() => map?.invalidateSize());
+    sizeObserver.observe(container.value);
+  }
 });
 
 // One pass over the drones per change; only moved markers are touched, the map is not rebuilt.
@@ -130,16 +122,18 @@ watch(() => selection.selectedId, sync, { flush: "post" });
 watch(
   () => theme.resolved,
   () => {
-    restyleBase();
+    applyTiles();
     sync();
   },
   { flush: "post" },
 );
 
 onBeforeUnmount(() => {
+  sizeObserver?.disconnect();
+  sizeObserver = null;
   map?.remove();
   map = null;
-  base = null;
+  tiles = null;
   markers.clear();
 });
 </script>
@@ -160,16 +154,8 @@ onBeforeUnmount(() => {
         aria-label="Fleet map"
         data-testid="fleet-map"
         :data-marker-count="markerCount"
-        :data-base="baseState"
+        :data-tile-url="tileUrlAttr"
       />
-      <p
-        v-if="baseState === 'unavailable'"
-        class="notice"
-        role="status"
-        data-testid="basemap-unavailable"
-      >
-        Base map unavailable
-      </p>
     </div>
   </section>
 </template>
@@ -198,23 +184,10 @@ h2 {
 .stage {
   position: relative;
   flex: 1;
-  min-height: 20rem;
+  min-height: 0;
 }
 .map {
   position: absolute;
   inset: 0;
-}
-.notice {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  z-index: 1000;
-  margin: 0;
-  padding: 2px 8px;
-  border: 1px dashed var(--warn);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--warn);
-  font-size: 12px;
 }
 </style>
