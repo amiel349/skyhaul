@@ -28,7 +28,7 @@ web/src/
   composables/     useRole(), useFleetMap(), useNow()
   views/           LoginView.vue  FleetView.vue  (missions, alerts in later issues)
   components/      FleetMap.vue  DroneList.vue  ConnectionBadge.vue
-  __tests__/       Vitest specs
+  testing/         test setup, factories, fake socket (component tests sit beside their .vue files)
 ```
 
 - **Stores own shared state, components do not.** Reason: one place applies REST pages and socket events.

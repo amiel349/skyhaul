@@ -2,7 +2,7 @@ import { defineConfigWithVueTs, vueTsConfigs } from "@vue/eslint-config-typescri
 import pluginVue from "eslint-plugin-vue";
 
 export default defineConfigWithVueTs(
-  { ignores: ["dist/**", "coverage/**"] },
+  { ignores: ["dist/**", "coverage/**", "src/testing/public/**"] },
   pluginVue.configs["flat/recommended"],
   vueTsConfigs.recommended,
   // Drone names, alert text and emails are untrusted: never render them as HTML.

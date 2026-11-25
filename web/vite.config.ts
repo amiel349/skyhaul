@@ -22,7 +22,11 @@ export default defineConfig({
     },
   },
   test: {
+    // Unit tests (stores, composables, pure functions, socket, scripts). Component tests run in the
+    // browser project (vitest.browser.config.ts) and are excluded here by location.
     environment: "jsdom",
-    setupFiles: ["./src/__tests__/setup.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+    exclude: ["src/{components,views}/[A-Z]*.test.ts", "src/App.test.ts", "node_modules/**"],
+    setupFiles: ["./src/testing/setup-unit.ts"],
   },
 });

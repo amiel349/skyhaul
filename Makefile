@@ -4,7 +4,7 @@ SKYHAUL_ENV ?= dev
 DEV_ENV_FILE := $(if $(filter dev,$(SKYHAUL_ENV)),$(wildcard .env.dev))
 COMPOSE := docker compose --env-file .env $(addprefix --env-file ,$(DEV_ENV_FILE)) -f deploy/compose.yaml
 
-.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test web-tests-check test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -56,6 +56,9 @@ test: ## Run unit, contract and concurrency tests
 	uv run pytest -m "not integration"
 	cd web && pnpm test
 
+web-tests-check: ## Fail if a web .vue file has no sibling test file
+	cd web && pnpm check:tests
+
 test-integration: ## Run integration tests (needs Docker for Testcontainers)
 	uv run pytest -m integration
 
@@ -81,4 +84,4 @@ migrate: ## Run the database migrations of the local stack
 secrets: ## Scan the whole git history for secrets
 	gitleaks git --redact --no-banner -v
 
-check: lint typecheck test contracts-check openapi-check secrets ## Run everything CI runs (except integration)
+check: lint typecheck test web-tests-check contracts-check openapi-check secrets ## Run everything CI runs (except integration)

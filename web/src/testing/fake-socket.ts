@@ -1,4 +1,5 @@
-// Stands in for realtime/socket.ts: tests drive the handlers the store registered.
+// Stands in for realtime/socket.ts: tests drive the handlers the fleet store registered.
+// Use it with: vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
 import type { FleetSocketHandlers } from "../realtime/socket";
 
 export const fake = {
