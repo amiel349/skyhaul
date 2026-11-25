@@ -42,12 +42,14 @@ services:
   redis:
     image: redis:7.4-alpine
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?run make env}
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
+      # redis-cli reads the password from here; no shell ever sees it.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?run make env}
+    # Exec form: the password is one argv element, never parsed by a shell.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?run make env}"]
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -113,6 +115,11 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
+    read_only: true
+    # gunicorn keeps its control socket under ~/.gunicorn (uid 10001 = app).
+    tmpfs: [/tmp, "/home/app/.gunicorn:uid=10001,gid=10001,mode=0700"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   # One thread: RabbitMQ ingestor.telemetry -> Postgres telemetry + Redis drone:{id} (#27).
   # No published port. It may read ingestor.telemetry only and declares nothing.
