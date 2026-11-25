@@ -54,13 +54,13 @@ function sync(): void {
   markerCount.value = markers.size;
 }
 
-const DEFAULT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-const DEFAULT_TILE_ATTRIBUTION = "© OpenStreetMap contributors © CARTO";
+const DEFAULT_TILE_URL = "https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png";
+const DEFAULT_TILE_ATTRIBUTION = "© Stadia Maps © OpenMapTiles © OpenStreetMap contributors";
 
 onMounted(() => {
   if (!container.value) return;
   map = L.map(container.value, { renderer: L.canvas(), center: [32.0, 34.8], zoom: 13 });
-  // CARTO is the dev default, so the map works without a web/.env file. Tests load no tiles.
+  // Stadia (no key needed on localhost) is the dev default, so the map works without a web/.env file. Tests load no tiles.
   const tileUrl = import.meta.env.VITE_TILE_URL ?? (import.meta.env.MODE === "test" ? "" : DEFAULT_TILE_URL);
   if (tileUrl) {
     L.tileLayer(tileUrl, {
