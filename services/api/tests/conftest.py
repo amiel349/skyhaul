@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from skyhaul_api import create_app
 from skyhaul_api.auth.permissions import public
 from skyhaul_api.commands.publisher import CommandPublisher
 from skyhaul_api.config import Config
+from skyhaul_api.realtime import stop_realtime
 
 CONTRACT_PATH = Path(__file__).resolve().parents[3] / "contracts" / "openapi" / "fleet-api.v1.json"
 FAULT_MARKER = "fault-detail-that-must-not-leak"
@@ -48,7 +50,7 @@ def fault_secret() -> str:
 
 
 @pytest.fixture
-def app() -> Flask:
+def app() -> Iterator[Flask]:
     app = create_app(
         Config(
             database_url="postgresql+psycopg://nobody@127.0.0.1:1/none",
@@ -73,7 +75,8 @@ def app() -> Flask:
     def fault() -> Any:
         raise RuntimeError(FAULT_MARKER)
 
-    return app
+    yield app
+    stop_realtime(app)  # the fan-out and sweep threads must not outlive the test
 
 
 @pytest.fixture

@@ -10,8 +10,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?run make env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make env}
       POSTGRES_DB: ${POSTGRES_DB:?run make env}
+      # Read by initdb.d/10-roles.sh, which runs on a fresh volume only (`make down -v`).
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?run make env}
+      DB_API_PASSWORD: ${DB_API_PASSWORD:?run make env}
+      DB_INGESTOR_PASSWORD: ${DB_INGESTOR_PASSWORD:?run make env}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres/initdb.d:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -37,18 +42,20 @@ services:
   redis:
     image: redis:7.4-alpine
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?run make env}
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
+      # redis-cli reads the password from here; no shell ever sees it.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?run make env}
+    # Exec form: the password is one argv element, never parsed by a shell.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?run make env}"]
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # One-shot: applies the fleet_core migrations, then exits. The API starts after it succeeds.
-  # Until #29 adds per-service roles, it and the API use the POSTGRES_USER owner role.
+  # One-shot: applies the fleet_core migrations as skyhaul_owner (the only role with DDL),
+  # then exits. The API and the ingestor start after it succeeds.
   migrate:
     image: skyhaul-api:local
     build:
@@ -56,49 +63,79 @@ services:
       dockerfile: services/api/Dockerfile
     command: ["skyhaul-migrate", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?run make env}:${POSTGRES_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+      DATABASE_URL: postgresql+psycopg://skyhaul_owner:${DB_OWNER_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
     depends_on:
       postgres: { condition: service_healthy }
     restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  # One-shot: with the admin broker user, creates skyhaul_api and skyhaul_ingestor and their
+  # permissions, and declares the whole topology (ADR 0013). The API and the ingestor
+  # declare nothing and start only after it succeeds.
+  broker-init:
+    image: skyhaul-api:local
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    command: ["flask", "--app", "skyhaul_api:create_spec_app()", "skyhaul", "broker-init"]
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:?run make env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?run make env}
+      AMQP_API_PASSWORD: ${AMQP_API_PASSWORD:?run make env}
+      AMQP_INGESTOR_PASSWORD: ${AMQP_INGESTOR_PASSWORD:?run make env}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   api:
     image: skyhaul-api:local
     build:
       context: ..
       dockerfile: services/api/Dockerfile
+    # REST and Socket.IO /fleet in one gunicorn process (Flask-SocketIO threading mode).
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?run make env}:${POSTGRES_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+      DATABASE_URL: postgresql+psycopg://skyhaul_api:${DB_API_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
       REDIS_URL: redis://:${REDIS_PASSWORD:?run make env}@redis:6379/0
       JWT_SECRET: ${JWT_SECRET:?run make env}
-      # The command publisher (#26). Admin broker user until broker-init (#29).
+      # The command publisher: may write to fleet.cmd only.
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: ${RABBITMQ_USER:?run make env}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?run make env}
+      RABBITMQ_USER: skyhaul_api
+      RABBITMQ_PASSWORD: ${AMQP_API_PASSWORD:?run make env}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
       migrate: { condition: service_completed_successfully }
+      broker-init: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
+    read_only: true
+    # gunicorn keeps its control socket under ~/.gunicorn (uid 10001 = app).
+    tmpfs: [/tmp, "/home/app/.gunicorn:uid=10001,gid=10001,mode=0700"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   # One thread: RabbitMQ ingestor.telemetry -> Postgres telemetry + Redis drone:{id} (#27).
-  # No published port. Until #29 adds broker-init and per-service users, it uses the admin
-  # broker user and the owner DB role, and INGESTOR_DECLARE_QUEUE=1 lets it declare its own
-  # queue; with broker-init that flag goes and the ingestor declares nothing.
+  # No published port. It may read ingestor.telemetry only and declares nothing.
   ingestor:
     build:
       context: ..
       dockerfile: services/ingestor/Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?run make env}:${POSTGRES_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+      DATABASE_URL: postgresql+psycopg://skyhaul_ingestor:${DB_INGESTOR_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
       REDIS_URL: redis://:${REDIS_PASSWORD:?run make env}@redis:6379/0
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: ${RABBITMQ_USER:?run make env}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?run make env}
-      INGESTOR_DECLARE_QUEUE: "1"
+      RABBITMQ_USER: skyhaul_ingestor
+      RABBITMQ_PASSWORD: ${AMQP_INGESTOR_PASSWORD:?run make env}
     depends_on:
       migrate: { condition: service_completed_successfully }
+      broker-init: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -112,6 +149,7 @@ services:
 
   # Test profile only (`make sim`, or `docker compose --profile test up`). Its control API
   # is a test surface behind SIM_CONTROL_TOKEN, published on the host's 127.0.0.1 only.
+  # It keeps the admin broker user in M2 (accepted, ADR 0013); its own user comes in M4.
   drone-sim:
     profiles: ["test"]
     build:

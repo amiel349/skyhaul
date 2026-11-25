@@ -21,9 +21,6 @@ class IngestorConfig:
     command_timeout_s: int = 10
     mission_dispatch_timeout_s: int = 60
     link_loss_after_s: int = 5
-    # Dev stack only, until broker-init (#29) declares the topology. Off by default: the
-    # ingestor declares nothing and exits if its queue is missing.
-    declare_queue: bool = False
     alive_file: str = "/tmp/skyhaul-ingestor.alive"  # noqa: S108 - liveness marker, no data
 
 
@@ -40,5 +37,4 @@ def load_config() -> IngestorConfig:
         command_timeout_s=optional_int("COMMAND_TIMEOUT_S", 10),
         mission_dispatch_timeout_s=optional_int("MISSION_DISPATCH_TIMEOUT_S", 60),
         link_loss_after_s=optional_int("LINK_LOSS_AFTER_S", 5),
-        declare_queue=os.environ.get("INGESTOR_DECLARE_QUEUE", "0") == "1",
     )

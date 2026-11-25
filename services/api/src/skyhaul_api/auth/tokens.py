@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
@@ -17,6 +18,16 @@ REQUIRED_CLAIMS: Final = ["sub", "role", "iat", "exp", "jti", "iss", "aud"]
 
 class InvalidTokenError(Exception):
     """Any reason a token is refused. Never carries the token."""
+
+
+class ExpiredTokenError(InvalidTokenError):
+    """The token was valid but its ``exp`` has passed."""
+
+
+@dataclass(frozen=True)
+class TokenClaims:
+    user_id: uuid.UUID
+    expires_at: datetime
 
 
 def issue_token(user_id: uuid.UUID, role: str, secret: str, now: datetime | None = None) -> str:
@@ -35,6 +46,11 @@ def issue_token(user_id: uuid.UUID, role: str, secret: str, now: datetime | None
 
 def verify_token(token: str, secret: str) -> uuid.UUID:
     """The user id of a valid token. Only HS256 is accepted, so ``alg: none`` fails."""
+    return verify_claims(token, secret).user_id
+
+
+def verify_claims(token: str, secret: str) -> TokenClaims:
+    """The user id and expiry of a valid token. ``ExpiredTokenError`` if it has expired."""
     try:
         claims = jwt.decode(
             token,
@@ -44,6 +60,9 @@ def verify_token(token: str, secret: str) -> uuid.UUID:
             issuer=ISSUER,
             options={"require": REQUIRED_CLAIMS},
         )
-        return uuid.UUID(str(claims["sub"]))
-    except (jwt.InvalidTokenError, ValueError):
+        expires_at = datetime.fromtimestamp(int(claims["exp"]), UTC)
+        return TokenClaims(uuid.UUID(str(claims["sub"])), expires_at)
+    except jwt.ExpiredSignatureError:
+        raise ExpiredTokenError from None
+    except (jwt.InvalidTokenError, ValueError, TypeError):
         raise InvalidTokenError from None

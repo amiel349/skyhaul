@@ -22,8 +22,6 @@ from skyhaul_contracts.codec import Codec
 from skyhaul_contracts.errors import DecodeError
 from skyhaul_contracts.topology import (
     INGESTOR_QUEUE,
-    declare_ingestor_queue,
-    declare_topology,
 )
 from skyhaul_fleet_core.db import make_engine, make_session_factory
 from sqlalchemy.exc import SQLAlchemyError
@@ -155,9 +153,6 @@ def run(config: IngestorConfig, stop: threading.Event, ingestor: Ingestor | None
         return EXIT_BROKER
     try:
         channel = connection.channel()
-        if config.declare_queue:
-            declare_topology(channel)
-            declare_ingestor_queue(channel)
         if not _queue_exists(channel):
             return EXIT_NO_QUEUE
         channel.basic_qos(prefetch_count=PREFETCH)

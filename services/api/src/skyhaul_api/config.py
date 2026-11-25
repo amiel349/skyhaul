@@ -21,6 +21,8 @@ class Config:
     rabbitmq_password: str = field(repr=False)
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "/"
+    # How often the Socket.IO sweep disconnects expired or disabled sessions (ADR 0014).
+    socket_sweep_s: int = 30
 
 
 def load_config() -> Config:
@@ -34,4 +36,5 @@ def load_config() -> Config:
         rabbitmq_password=require("RABBITMQ_PASSWORD"),
         rabbitmq_port=optional_int("RABBITMQ_PORT", 5672),
         rabbitmq_vhost=os.environ.get("RABBITMQ_VHOST", "") or "/",
+        socket_sweep_s=optional_int("SOCKET_SWEEP_S", 30),
     )

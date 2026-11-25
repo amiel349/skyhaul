@@ -36,8 +36,10 @@ dev = [
     "pytest>=8.4",
     "pytest-cov>=7.0",
     "pytest-timeout>=2.4",
+    "python-socketio[client]>=5.14",
     "ruff>=0.14",
     "testcontainers[postgres,rabbitmq,redis]>=4.15",
+    "types-flask-socketio>=5.7.0.20261122",
 ]
 
 [tool.ruff]
@@ -65,6 +67,11 @@ module = ["pika", "pika.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# python-socketio ships no type information (Flask-SocketIO has stubs).
+module = ["socketio", "socketio.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # flask-smorest ships no type information.
 module = ["flask_smorest", "flask_smorest.*"]
 ignore_missing_imports = true
@@ -77,8 +84,9 @@ disallow_untyped_decorators = false
 [tool.pytest.ini_options]
 testpaths = ["services", "contracts"]
 addopts = "--import-mode=importlib -ra"
-# Shared test helpers: `sim_support` (simulator fakes, builders, the command client) and
-# `mcp_support` (MCP server harness with a mocked control API and a fake broker).
-pythonpath = ["services/drone_sim/tests", "services/mcp_sim/tests"]
+# Shared test helpers: `sim_support` (simulator fakes, builders, the command client),
+# `mcp_support` (MCP server harness with a mocked control API and a fake broker) and
+# `pg_support` (Postgres with the real initdb.d roles).
+pythonpath = ["services/drone_sim/tests", "services/mcp_sim/tests", "services/fleet_core/tests"]
 markers = ["integration: needs Docker (Testcontainers); run with `make test-integration`"]
 timeout = 30

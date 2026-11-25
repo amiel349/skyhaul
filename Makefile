@@ -1,6 +1,6 @@
 COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
 
-.PHONY: help setup env up sim down logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up sim down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -21,6 +21,10 @@ sim: ## Start RabbitMQ and the drone simulator with its control API (test profil
 
 down: ## Stop the local stack
 	$(COMPOSE) --profile test down
+
+# `make down -v` would be make's own -v (--version), so the volume reset has its own target.
+down-volumes: ## Stop the local stack and delete its volumes (the database)
+	$(COMPOSE) --profile test down -v
 
 logs: ## Follow logs of the local stack
 	$(COMPOSE) logs -f

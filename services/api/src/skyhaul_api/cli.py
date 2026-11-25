@@ -1,5 +1,7 @@
-"""``flask spec`` (export or check the OpenAPI document) and ``flask skyhaul bootstrap``
-(create the first admin; the password comes from stdin, never from an argument)."""
+"""``flask spec`` (export or check the OpenAPI document), ``flask skyhaul bootstrap``
+(create the first admin; the password comes from stdin, never from an argument) and
+``flask skyhaul broker-init`` (broker users and topology; it reads only its own settings, so
+it runs with the spec app: ``flask --app 'skyhaul_api:create_spec_app()'``)."""
 
 from __future__ import annotations
 
@@ -11,10 +13,13 @@ import click
 from flask import Flask, current_app
 from flask.cli import AppGroup, with_appcontext
 from marshmallow import ValidationError
+from pika.exceptions import AMQPError
 from skyhaul_fleet_core.models import Role, User
+from skyhaul_fleet_core.settings import SettingsError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from skyhaul_api import broker_init
 from skyhaul_api.audit.service import record
 from skyhaul_api.auth.passwords import hash_password
 from skyhaul_api.database import SESSIONS_KEY
@@ -91,6 +96,18 @@ def bootstrap_command(admin_email: str) -> None:
         )
         session.commit()
     click.echo("admin created")
+
+
+@skyhaul_cli.command("broker-init")
+def broker_init_command() -> None:
+    """Create the broker users and permissions and declare the topology (one-shot)."""
+    try:
+        broker_init.run(broker_init.load_config())
+    except (SettingsError, broker_init.BrokerInitError) as exc:
+        raise click.ClickException(str(exc)) from None
+    except AMQPError as exc:
+        raise click.ClickException(f"cannot declare the topology ({type(exc).__name__})") from None
+    click.echo("broker users and topology ready")
 
 
 def init_cli(app: Flask) -> None:

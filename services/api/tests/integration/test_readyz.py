@@ -13,6 +13,7 @@ from flask.testing import FlaskClient
 from skyhaul_api import create_app
 from skyhaul_api.commands.routes import PUBLISHER_KEY
 from skyhaul_api.config import Config
+from skyhaul_api.realtime import stop_realtime
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.rabbitmq import RabbitMqContainer
 from testcontainers.community.redis import RedisContainer
@@ -85,3 +86,4 @@ def test_readyz_is_200_when_dependencies_answer_and_503_naming_the_one_that_does
             }
         finally:
             app.extensions[PUBLISHER_KEY].stop()
+            stop_realtime(app)
