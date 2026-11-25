@@ -26,6 +26,7 @@ from skyhaul_api.logs import configure_logging, init_request_logging
 from skyhaul_api.missions import routes as mission_routes
 from skyhaul_api.openapi import API_PREFIX, make_api
 from skyhaul_api.ratelimit import init_rate_limits
+from skyhaul_api.realtime import init_realtime
 from skyhaul_api.users import routes as user_routes
 
 # gunicorn stops (instead of respawning the worker forever) when a worker exits with 3.
@@ -38,7 +39,8 @@ def create_app(config: Config | None = None, publisher: CommandPublisher | None 
     """The fleet API. Without ``config`` it reads the environment and exits on a bad setting.
 
     It does not connect at boot: with Postgres, Redis or RabbitMQ down it starts, and
-    ``/readyz`` answers 503. The command publisher thread connects in the background.
+    ``/readyz`` answers 503. The command publisher thread connects in the background, and the
+    Socket.IO fan-out and expiry sweep threads start (``skyhaul_api.realtime``).
     """
     if config is None:
         config = _config_or_exit()
@@ -71,6 +73,7 @@ def create_app(config: Config | None = None, publisher: CommandPublisher | None 
     app.extensions[command_routes.PUBLISHER_KEY] = publisher
     app.extensions[command_routes.CODEC_KEY] = Codec()
     health.register_readiness_check(app, "publisher", lambda: publisher.connected)
+    init_realtime(app, config, app.extensions[SESSIONS_KEY])
     return app
 
 

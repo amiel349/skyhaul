@@ -80,7 +80,7 @@ def sim(stack: Stack, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Sim]
 
     tmp = tmp_path_factory.mktemp("missions")
     config = IngestorConfig(
-        database_url=stack.database_url,
+        database_url=stack.ingestor_database_url,
         redis_url=stack.redis_url,
         rabbitmq_host=stack.amqp_host,
         rabbitmq_port=stack.amqp_port,

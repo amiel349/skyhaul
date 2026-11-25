@@ -18,11 +18,13 @@ from skyhaul_contracts.codec import Codec
 from skyhaul_contracts.errors import EncodeError
 from skyhaul_contracts.message import Message
 from skyhaul_contracts.types import PAYLOADS, MessageType
+from skyhaul_fleet_core.commands import COMMAND_UPDATED, command_json
 from skyhaul_fleet_core.models import Command, CommandStatus
 from skyhaul_fleet_core.transitions import cas_update
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from skyhaul_api import events
 from skyhaul_api.audit.service import record
 from skyhaul_api.commands.publisher import CommandPublisher, Outcome, PublisherFull
 from skyhaul_api.errors import ApiError
@@ -170,13 +172,20 @@ def _outcome(publisher: CommandPublisher, future: Future[Outcome] | None) -> Out
 
 def settle(session: Session, command: Command, outcome: Outcome) -> Command:
     """SENT if confirmed, FAILED otherwise, and commit. A reply may have overtaken the
-    confirm; the CAS then changes nothing and the reply's status stands."""
+    confirm; the CAS then changes nothing and the reply's status stands.
+
+    A change is pushed as ``command.updated`` after the commit (best effort), so every status
+    change reaches the socket: SENT and FAILED from here, the rest from the ingestor."""
     if outcome is Outcome.CONFIRMED:
-        cas_update(session, Command, command.id, CommandStatus.SENT, sent_at=datetime.now(UTC))
+        moved = cas_update(
+            session, Command, command.id, CommandStatus.SENT, sent_at=datetime.now(UTC)
+        )
     else:
-        cas_update(session, Command, command.id, CommandStatus.FAILED)
+        moved = cas_update(session, Command, command.id, CommandStatus.FAILED)
     session.commit()
     session.refresh(command)
+    if moved:
+        events.push(COMMAND_UPDATED, command_json(command))
     return command
 
 

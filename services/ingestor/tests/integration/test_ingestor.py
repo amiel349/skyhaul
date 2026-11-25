@@ -44,7 +44,7 @@ from skyhaul_ingestor.consumer import EXIT_NO_QUEUE
 from skyhaul_ingestor.handlers import StateUpdate
 from skyhaul_ingestor.state import StateWriter
 from skyhaul_ingestor.watchdog import Retention
-from sqlalchemy import Engine, func, select, text
+from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from .conftest import Stack, StartIngestor, wait_until
@@ -268,14 +268,17 @@ def test_postgres_outage_acks_nothing_and_recovery_writes_everything_once(
     drone_id: str,
     start_ingestor: StartIngestor,
     publish: Publish,
+    stack: Stack,
 ) -> None:
     register(drone_id)
+    # Only a superuser may change a role; the owner has no CREATEROLE.
+    admin = create_engine(stack.postgres.get_connection_url())
     running = start_ingestor()
-    with engine.begin() as conn:
-        conn.execute(text("ALTER ROLE ingestor NOLOGIN"))
+    with admin.begin() as conn:
+        conn.execute(text("ALTER ROLE skyhaul_ingestor NOLOGIN"))
         conn.execute(
             text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = :u"),
-            {"u": "ingestor"},
+            {"u": "skyhaul_ingestor"},
         )
     try:
         for pct in (90.0, 80.0, 70.0, 60.0):
@@ -291,8 +294,9 @@ def test_postgres_outage_acks_nothing_and_recovery_writes_everything_once(
         assert held() == 4
         assert rows(engine, drone_id) == []
     finally:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER ROLE ingestor LOGIN"))
+        with admin.begin() as conn:
+            conn.execute(text("ALTER ROLE skyhaul_ingestor LOGIN"))
+        admin.dispose()
     wait_until(lambda: len(rows(engine, drone_id)) == 4, what="the writes after recovery")
     wait_until(lambda: not running.ingestor.batch.items, what="the ack")
     running.close()

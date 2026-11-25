@@ -26,6 +26,7 @@ from flask import Flask
 from flask.testing import FlaskClient
 from skyhaul_api import create_app
 from skyhaul_api.commands.routes import PUBLISHER_KEY
+from skyhaul_api.realtime import stop_realtime
 from skyhaul_contracts.codec import Codec
 from skyhaul_contracts.topology import COMMAND_EXCHANGE, TELEMETRY_EXCHANGE
 from skyhaul_contracts.types import MessageType
@@ -62,7 +63,7 @@ def fleet(stack: Stack, tmp_path_factory: pytest.TempPathFactory) -> Iterator[No
 
     tmp = tmp_path_factory.mktemp("fleet")
     config = IngestorConfig(
-        database_url=stack.database_url,
+        database_url=stack.ingestor_database_url,
         redis_url=stack.redis_url,
         rabbitmq_host=stack.amqp_host,
         rabbitmq_port=stack.amqp_port,
@@ -348,3 +349,4 @@ def test_an_unroutable_or_unreachable_broker_is_503_command_not_sent_and_failed(
                 assert [r.status.value for r in rows] == ["FAILED"]
         finally:
             app.extensions[PUBLISHER_KEY].stop()
+            stop_realtime(app)

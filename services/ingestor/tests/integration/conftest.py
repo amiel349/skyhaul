@@ -1,5 +1,6 @@
-"""Real Postgres (migrated, with a least-privilege ``ingestor`` role), Redis and RabbitMQ for
-the session; the ingestor runs on a thread of the test process against them.
+"""Real Postgres (the stack's roles; migrated as ``skyhaul_owner``, the ingestor connects as
+``skyhaul_ingestor``), Redis and RabbitMQ for the session; the ingestor runs on a thread of
+the test process against them.
 
 Isolation: every test uses its own drone ids (``it<hex>-d001``) and looks only at its rows.
 The queue is shared, like in the stack; leftovers from one test belong to drones no other
@@ -25,6 +26,7 @@ import pika
 import pytest
 import redis
 from alembic import command
+from pg_support import roles_postgres
 from pydantic import BaseModel
 from skyhaul_contracts.codec import Codec
 from skyhaul_contracts.message import Message
@@ -33,13 +35,12 @@ from skyhaul_fleet_core.migrate import alembic_config
 from skyhaul_fleet_core.models import Drone
 from skyhaul_ingestor.config import IngestorConfig
 from skyhaul_ingestor.consumer import Ingestor, build, run
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.rabbitmq import RabbitMqContainer
 from testcontainers.community.redis import RedisContainer
 
-POSTGRES_IMAGE = "postgres:16-alpine"
 REDIS_IMAGE = "redis:7.4-alpine"
 RABBITMQ_IMAGE = "rabbitmq:3.13-management-alpine"
 
@@ -70,46 +71,28 @@ class Stack:
 @pytest.fixture(scope="session")
 def stack() -> Iterator[Stack]:
     user, amqp_password = "skyhaul-test", secrets.token_urlsafe(24)
-    redis_password, ingestor_password = secrets.token_hex(16), secrets.token_hex(16)
-    postgres = PostgresContainer(POSTGRES_IMAGE, password=secrets.token_hex(16), driver="psycopg")
+    redis_password = secrets.token_hex(16)
+    pg = roles_postgres()  # the stack's initdb.d roles; the grants come from the migrations
     rabbit = RabbitMqContainer(RABBITMQ_IMAGE, username=user, password=amqp_password)
     redis_container = RedisContainer(REDIS_IMAGE, password=redis_password)
-    with postgres, rabbit, redis_container:
-        owner_url = postgres.get_connection_url()
+    with pg.container, rabbit, redis_container:
+        owner_url = pg.url("skyhaul_owner")
         command.upgrade(alembic_config(owner_url), "head")
-        _create_ingestor_role(owner_url, ingestor_password)
-        host, port = postgres.get_container_host_ip(), postgres.get_exposed_port(5432)
-        ingestor_url = (
-            f"postgresql+psycopg://ingestor:{ingestor_password}@{host}:{port}/{postgres.dbname}"
-        )
+        ingestor_url = pg.url("skyhaul_ingestor")
         amqp = pika.ConnectionParameters(
             host=rabbit.get_container_host_ip(),
             port=int(rabbit.get_exposed_port(5672)),
             credentials=pika.PlainCredentials(user, amqp_password),
         )
         connection = pika.BlockingConnection(amqp)
-        declare_topology(connection.channel())  # what broker-init (#29) will do
+        declare_topology(connection.channel())  # what broker-init does in the stack
         declare_ingestor_queue(connection.channel())
         connection.close()
         redis_host = redis_container.get_container_host_ip()
         redis_url = (
             f"redis://:{redis_password}@{redis_host}:{redis_container.get_exposed_port(6379)}/0"
         )
-        yield Stack(postgres, owner_url, ingestor_url, redis_url, amqp, user, amqp_password)
-
-
-def _create_ingestor_role(owner_url: str, password: str) -> None:
-    """The grants of design section 10 (SELECT where an UPDATE ... RETURNING needs it)."""
-    engine = create_engine(owner_url)
-    with engine.begin() as conn:
-        conn.execute(text(f"CREATE ROLE ingestor LOGIN PASSWORD '{password}'"))
-        conn.execute(text("GRANT SELECT, UPDATE ON missions TO ingestor"))
-        conn.execute(text("GRANT INSERT ON mission_events TO ingestor"))
-        conn.execute(text("GRANT SELECT, INSERT, UPDATE ON alerts TO ingestor"))
-        conn.execute(text("GRANT SELECT, INSERT, DELETE ON telemetry TO ingestor"))
-        conn.execute(text("GRANT SELECT ON drones TO ingestor"))
-        conn.execute(text("GRANT SELECT, UPDATE ON commands TO ingestor"))
-    engine.dispose()
+        yield Stack(pg.container, owner_url, ingestor_url, redis_url, amqp, user, amqp_password)
 
 
 @pytest.fixture(scope="session")
