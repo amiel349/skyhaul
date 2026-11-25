@@ -1,6 +1,6 @@
 COMPOSE := docker compose --env-file .env -f deploy/compose.yaml
 
-.PHONY: help setup env up sim down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -18,6 +18,9 @@ up: ## Start the local stack
 
 sim: ## Start RabbitMQ and the drone simulator with its control API (test profile)
 	$(COMPOSE) --profile test up -d --build --wait rabbitmq drone-sim
+
+seed: ## Create a local admin and a few drones (needs make up and make sim)
+	python3 scripts/seed.py
 
 down: ## Stop the local stack
 	$(COMPOSE) --profile test down

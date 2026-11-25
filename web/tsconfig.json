@@ -5,7 +5,8 @@
     "noUncheckedIndexedAccess": true,
     "types": ["vite/client"],
     "paths": {
-      "@skyhaul/contracts": ["../contracts/ts/index.ts"]
+      "@skyhaul/contracts": ["../contracts/ts/index.ts"],
+      "@contracts/*": ["../contracts/ts/*"]
     }
   },
   "include": [
