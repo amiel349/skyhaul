@@ -143,6 +143,7 @@ class Mission(Base):
             postgresql_where=text("state IN ('DISPATCHING', 'ACTIVE')"),
         ),
         Index("ix_missions_state_created_at", "state", text("created_at DESC")),
+        UniqueConstraint("created_by", "idempotency_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -155,6 +156,10 @@ class Mission(Base):
     started_at: Mapped[datetime | None]
     ended_at: Mapped[datetime | None]
     failure_reason: Mapped[str | None]
+    # Progress from the drone's latest MISSION_STATUS; null until the first one.
+    waypoint_index: Mapped[int | None]
+    progress_pct: Mapped[float | None]
+    idempotency_key: Mapped[str | None]
 
 
 class MissionEvent(Base):

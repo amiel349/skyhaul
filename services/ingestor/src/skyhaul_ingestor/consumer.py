@@ -33,7 +33,7 @@ from skyhaul_ingestor.config import IngestorConfig
 from skyhaul_ingestor.handlers import handle
 from skyhaul_ingestor.registry import RegistryCache
 from skyhaul_ingestor.state import StateWriter
-from skyhaul_ingestor.watchdog import CommandSweeper, Retention
+from skyhaul_ingestor.watchdog import CommandSweeper, LinkDetector, LinkWatchdog, Retention
 
 PREFETCH: Final = 1000
 POLL_S: Final = 0.05
@@ -59,6 +59,7 @@ class Ingestor:
         counters: Counter[str],
         sweeper: CommandSweeper | None = None,
         codec: Codec | None = None,
+        link: LinkWatchdog | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -67,6 +68,7 @@ class Ingestor:
         self._flusher = flusher
         self._retention = retention
         self._sweeper = sweeper
+        self._link = link
         self._codec = codec or Codec()
         self._clock = clock
         self._wall_clock = wall_clock
@@ -91,6 +93,8 @@ class Ingestor:
         self._retention.maybe_run(now)
         if self._sweeper is not None:
             self._sweeper.maybe_run(now)
+        if self._link is not None:
+            self._link.maybe_run(now)
         if now >= self._stats_at:
             self._stats_at = now + STATS_EVERY_S
             log.info("ingestor stats", extra={"counters": dict(self.counters)})
@@ -116,9 +120,22 @@ def build(config: IngestorConfig) -> Ingestor:
     )
     counters: Counter[str] = Counter()
     state = StateWriter(client)
-    flusher = Flusher(sessions, RegistryCache(), state, counters)
-    sweeper = CommandSweeper(sessions, state, config.command_timeout_s)
-    return Ingestor(flusher, Retention(sessions, config.retention_days), counters, sweeper)
+    link = LinkWatchdog(sessions, state, LinkDetector(config.link_loss_after_s))
+    flusher = Flusher(
+        sessions,
+        RegistryCache(),
+        state,
+        counters,
+        on_heartbeats=lambda drone_ids: link.heard(drone_ids, time.monotonic()),
+    )
+    sweeper = CommandSweeper(
+        sessions,
+        state,
+        config.command_timeout_s,
+        dispatch_timeout_s=config.mission_dispatch_timeout_s,
+    )
+    retention = Retention(sessions, config.retention_days)
+    return Ingestor(flusher, retention, counters, sweeper, link=link)
 
 
 def run(config: IngestorConfig, stop: threading.Event, ingestor: Ingestor | None = None) -> int:

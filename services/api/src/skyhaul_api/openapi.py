@@ -24,19 +24,8 @@ from flask_smorest import Api
 API_PREFIX: Final = "/api/v1"
 OPENAPI_VERSION: Final = "3.1.0"
 
-# Contract paths not implemented yet, with the issue that brings them.
-PENDING_PATHS: Final = frozenset(
-    {
-        "/missions",  # #28
-        "/missions/{mission_id}",  # #28
-        "/missions/{mission_id}/events",  # #28
-        "/missions/{mission_id}/start",  # #28
-        "/missions/{mission_id}/abort",  # #28
-        "/missions/{mission_id}/cancel",  # #28
-        "/alerts",  # #28
-        "/alerts/{alert_id}/ack",  # #28
-    }
-)
+# Contract paths not implemented yet, with the issue that brings them (none left in M2).
+PENDING_PATHS: Final[frozenset[str]] = frozenset()
 
 
 def _schema(name: str) -> dict[str, str]:

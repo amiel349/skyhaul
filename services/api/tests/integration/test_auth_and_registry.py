@@ -178,7 +178,9 @@ def _protected_routes(app: Flask) -> list[tuple[str, str, str]]:
         if access in (PUBLIC, None):
             continue
         url = CONVERTER.sub(
-            lambda m: str(uuid.uuid4()) if m.group(1) == "user_id" else "missing-drone", rule.rule
+            # uuid path parameters (user, command, mission, alert ids) need a UUID to route.
+            lambda m: "missing-drone" if m.group(1) == "drone_id" else str(uuid.uuid4()),
+            rule.rule,
         )
         for method in sorted((rule.methods or set()) - {"HEAD", "OPTIONS"}):
             routes.append((method, url, str(access)))

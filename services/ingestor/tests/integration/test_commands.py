@@ -97,5 +97,8 @@ def test_sweep_times_out_sent_fails_pending_and_a_late_reply_wins_once(
     sweeper = CommandSweeper(sessions, events, wall_clock=lambda: later)  # type: ignore[arg-type]
     sweeper.maybe_run(0.0)
     assert status_of(engine, fresh_sent) == (CommandStatus.ACKED, False)
-    # FAILED is final: a reply to a command that never left is ignored.
+    # FAILED is not final for replies: the broker may have routed it after the deadline.
+    # A late NACK wins with late=true, and nothing moves it afterwards (#28, PR #34 review).
+    assert reply(old_pending, CommandStatus.NACKED)
+    assert status_of(engine, old_pending) == (CommandStatus.NACKED, True)
     assert not reply(old_pending, CommandStatus.ACKED)

@@ -6,11 +6,10 @@ consumes AMQP; the ingestor applies the drone's ACK or NACK.
 
 from __future__ import annotations
 
-import re
 import uuid
 from typing import Final
 
-from flask import Response, current_app, jsonify, request
+from flask import Response, current_app, jsonify
 from flask_smorest import Blueprint
 from marshmallow import RAISE, Schema, fields, validate
 from psycopg.errors import UniqueViolation
@@ -38,7 +37,7 @@ from skyhaul_api.openapi import (
     schema_ref,
 )
 from skyhaul_api.pagination import paginate
-from skyhaul_api.validation import load_body, page_args
+from skyhaul_api.validation import idempotency_key, load_body, page_args
 
 blp = Blueprint("commands", __name__)
 
@@ -47,7 +46,6 @@ CODEC_KEY: Final = "skyhaul.codec"
 
 # The contract's DirectCommandType: every command type except START_MISSION.
 DIRECT_TYPES: Final = ("ARM", "TAKEOFF", "GOTO", "RETURN_HOME", "LAND", "SET_SPEED")
-IDEMPOTENCY_KEY_RE: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 FLEET_READ = {"x-permission": Permission.FLEET_READ.value}
 COMMAND_SEND = {"x-permission": Permission.COMMAND_SEND.value}
@@ -80,7 +78,7 @@ class CommandRequestSchema(Schema):
 def send_command(drone_id: str) -> Response:
     drone = live_drone(drone_id)
     body = load_body(CommandRequestSchema())
-    key = _idempotency_key()
+    key = idempotency_key()
     user_id = principal().user.id
     session = db()
     codec: Codec = current_app.extensions[CODEC_KEY]
@@ -146,15 +144,6 @@ def get_command(command_id: uuid.UUID) -> Response:
     if command is None:
         raise ApiError(404, "not_found", "The command does not exist.")
     return jsonify(command_json(command))
-
-
-def _idempotency_key() -> str | None:
-    key = request.headers.get("Idempotency-Key")
-    if key is None:
-        return None
-    if not IDEMPOTENCY_KEY_RE.fullmatch(key):
-        raise ApiError(400, "bad_request", "Idempotency-Key must be 1 to 64 of A-Z a-z 0-9 _ -.")
-    return key
 
 
 def _accepted(command: Command) -> Response:
