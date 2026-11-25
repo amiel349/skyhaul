@@ -109,5 +109,18 @@ input,
 button {
   padding: 0.5rem;
   font: inherit;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.55;
 }
 </style>

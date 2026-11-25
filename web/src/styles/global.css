@@ -1,0 +1,118 @@
+/* Design tokens. Every colour in the app comes from here (ADR 0017). Dark first. */
+:root {
+  --bg: #0d1218;
+  --panel: #141b23;
+  --panel-2: #19222c;
+  --line: #243040;
+  --ink: #e4eaf1;
+  --muted: #8b99ab;
+  --accent: #3fb6c9;
+  --accent-soft: #12303a;
+  --on-accent: #0d1218;
+  --ok: #4cc38a;
+  --warn: #e9a23b;
+  --crit: #ee6b62;
+  --land: #1a2a2a;
+  --sea: #101c2a;
+  --coast: #3d5a66;
+  --road: #2f4357;
+  --focus: #6fd3e3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eef1f5;
+    --panel: #ffffff;
+    --panel-2: #f3f6f9;
+    --line: #d6dde6;
+    --ink: #17212c;
+    --muted: #5d6b7d;
+    --accent: #0b6c7e;
+    --accent-soft: #dcf0f4;
+    --on-accent: #ffffff;
+    --ok: #187a4d;
+    --warn: #8f5a07;
+    --crit: #b83a31;
+    --land: #e6eee9;
+    --sea: #d3e1ee;
+    --coast: #8aa3b5;
+    --road: #b3c2d1;
+    --focus: #0b6c7e;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #eef1f5;
+  --panel: #ffffff;
+  --panel-2: #f3f6f9;
+  --line: #d6dde6;
+  --ink: #17212c;
+  --muted: #5d6b7d;
+  --accent: #0b6c7e;
+  --accent-soft: #dcf0f4;
+  --on-accent: #ffffff;
+  --ok: #187a4d;
+  --warn: #8f5a07;
+  --crit: #b83a31;
+  --land: #e6eee9;
+  --sea: #d3e1ee;
+  --coast: #8aa3b5;
+  --road: #b3c2d1;
+  --focus: #0b6c7e;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Leaflet parts that live outside Vue's scoped styles. */
+.leaflet-container {
+  background: var(--sea);
+  font-family: var(--font-body);
+}
+.leaflet-tooltip.drone-tag {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.leaflet-tooltip.drone-tag::before {
+  display: none;
+}
+.leaflet-tooltip.drone-tag.is-selected {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--panel) 85%, transparent) !important;
+  color: var(--muted) !important;
+}
+.leaflet-control-attribution a {
+  color: var(--accent) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto;
+  }
+}
