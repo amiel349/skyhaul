@@ -28,6 +28,7 @@ from skyhaul_api.openapi import export_spec, spec_differences
 from skyhaul_api.users.schemas import NEW_PASSWORD_MIN, PASSWORD_MAX, UserCreateSchema
 
 DEFAULT_CONTRACT = Path("contracts/openapi/fleet-api.v1.json")
+DEV_ADMIN_FLAG = "SKYHAUL_DEV_ADMIN"
 
 
 @click.command("spec")
@@ -107,9 +108,15 @@ def ensure_admin_command() -> None:
     password is empty. Never prints the password.
 
     Unlike `bootstrap` and `POST /users` it accepts a short password (like `1234`), so a local
-    login is easy to type. That is only safe because this runs from the local `dev` compose
-    profile. Never wire it into a deploy.
+    login is easy to type. That is only safe on a local stack, so it refuses to run unless
+    SKYHAUL_DEV_ADMIN=1, which only the local `dev-admin` compose service sets. It can reset an
+    existing user's password, so never set that flag against a shared or deployed database.
     """
+    if os.environ.get(DEV_ADMIN_FLAG) != "1":
+        raise click.ClickException(
+            f"refusing to run: ensure-admin is for local development only ({DEV_ADMIN_FLAG}=1 "
+            "is set by the dev-admin compose service)"
+        )
     email = os.environ.get("DEV_ADMIN_EMAIL", "").strip()
     password = os.environ.get("DEV_ADMIN_PASSWORD", "")
     if not email or not password:

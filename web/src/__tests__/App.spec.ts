@@ -12,6 +12,7 @@ import { useFleetStore } from "../stores/fleet";
 import ConnectionBadge from "../components/ConnectionBadge.vue";
 import FleetMap from "../components/FleetMap.vue";
 import { useConnectionStore } from "../stores/connection";
+import { fake } from "./fakeSocket";
 import { drone, event, listDrones, liveState, loginOk, server, url } from "./server";
 
 vi.mock("../realtime/socket", async () => await import("./fakeSocket"));
@@ -74,6 +75,21 @@ describe("dispatcher UI", () => {
     expect(await screen.findByTestId("login-form")).toBeTruthy();
     expect(useAuthStore().token).toBeNull();
   });
+
+  it("shows Session expired on the login page when the socket refuses the token", async () => {
+    server.use(loginOk, listDrones([drone("d1")]));
+    await mountApp("/login");
+    const user = userEvent.setup();
+    await user.type(await screen.findByTestId("login-email"), "a@skyhaul.dev");
+    await user.type(screen.getByTestId("login-password"), "pw");
+    await user.click(screen.getByTestId("login-submit"));
+    await screen.findByTestId("fleet-map");
+
+    fake.handlers!.onAuthError("token_expired");
+
+    expect((await screen.findByTestId("login-expired")).textContent).toContain("Session expired");
+    expect(useAuthStore().token).toBeNull();
+  });
 });
 
 describe("map", () => {
@@ -96,6 +112,21 @@ describe("map", () => {
     });
   });
 
+  it("renders an untrusted drone name as text, never as HTML", async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+    server.use(loginOk, listDrones([{ ...drone("d1"), name: hostile }]));
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    await useAuthStore().login("a@skyhaul.dev", "pw");
+    await useFleetStore().loadAll();
+    const { container } = render(FleetMap, { global: { plugins: [pinia] } });
+
+    const label = await screen.findByTestId("fleet-marker-label-d1");
+
+    expect(label.textContent).toBe(hostile);
+    expect(container.querySelector("img")?.outerHTML).toBeUndefined();
+  });
+
   it("shows a Reconnecting banner while the socket is down", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -113,5 +144,8 @@ describe("safeNext", () => {
     expect(safeNext("//evil.example")).toBe("/");
     expect(safeNext("https://evil.example")).toBe("/");
     expect(safeNext("/\\evil.example")).toBe("/");
+    expect(safeNext("/\t/evil.example")).toBe("/");
+    expect(safeNext("/\n/evil.example")).toBe("/");
+    expect(safeNext("/\r/evil.example")).toBe("/");
   });
 });

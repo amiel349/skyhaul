@@ -88,6 +88,7 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: skyhaul_api
       RABBITMQ_PASSWORD: ${AMQP_API_PASSWORD:?run make env}
+      SKYHAUL_DEV_ADMIN: "1" # ensure-admin refuses to run without it
       DEV_ADMIN_EMAIL: ${DEV_ADMIN_EMAIL:-}
       DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-}
     depends_on:

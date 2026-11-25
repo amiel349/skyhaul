@@ -60,8 +60,8 @@ const DEFAULT_TILE_ATTRIBUTION = "© Stadia Maps © OpenMapTiles © OpenStreetMa
 onMounted(() => {
   if (!container.value) return;
   map = L.map(container.value, { renderer: L.canvas(), center: [32.0, 34.8], zoom: 13 });
-  // Stadia (no key needed on localhost) is the dev default, so the map works without a web/.env file. Tests load no tiles.
-  const tileUrl = import.meta.env.VITE_TILE_URL ?? (import.meta.env.MODE === "test" ? "" : DEFAULT_TILE_URL);
+  // Stadia (no key needed on localhost) is the dev default, so the map works without a web/.env file. Tests never load tiles, even when a local .env sets the URL.
+  const tileUrl = import.meta.env.MODE === "test" ? "" : (import.meta.env.VITE_TILE_URL ?? DEFAULT_TILE_URL);
   if (tileUrl) {
     L.tileLayer(tileUrl, {
       attribution: import.meta.env.VITE_TILE_ATTRIBUTION ?? DEFAULT_TILE_ATTRIBUTION,
