@@ -71,6 +71,37 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  # Local development only (profile `dev`, started by `make up`): creates or syncs the admin in
+  # DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD from .env, so there is one login to remember. Empty
+  # password = no-op. Runs with the API's own settings and DB role; it is not part of a deploy.
+  dev-admin:
+    profiles: [dev]
+    image: skyhaul-api:local
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    command: ["flask", "--app", "skyhaul_api:create_app()", "skyhaul", "ensure-admin"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://skyhaul_api:${DB_API_PASSWORD:?run make env}@postgres:5432/${POSTGRES_DB:?run make env}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?run make env}@redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?run make env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: skyhaul_api
+      RABBITMQ_PASSWORD: ${AMQP_API_PASSWORD:?run make env}
+      DEV_ADMIN_EMAIL: ${DEV_ADMIN_EMAIL:-}
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      broker-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
   # One-shot: with the admin broker user, creates skyhaul_api and skyhaul_ingestor and their
   # permissions, and declares the whole topology (ADR 0013). The API and the ingestor
   # declare nothing and start only after it succeeds.

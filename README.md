@@ -56,11 +56,11 @@ make setup   # once: Python and web dependencies
 make env     # once: .env with generated secrets
 make up      # API, ingestor, Postgres, RabbitMQ, Redis
 make sim     # drone simulator (test profile)
-make seed    # local admin (password printed once) and 3 drones, registered and spawned
+make seed    # 3 drones, registered and spawned in the simulator
 cd web && cp .env.example .env.local && pnpm dev   # http://localhost:5173
 ```
 
-Sign in as `admin@skyhaul.dev` with the password `make seed` printed. Drones appear on the map; to see one move, fly it from Claude Code with the simulator tools (see below). `make seed` keeps the generated password in `secrets/seed-admin-password` (git-ignored) so a second run can log in; it is idempotent. The dev server proxies `/api` and `/socket.io` to `SKYHAUL_API_URL` (default `http://127.0.0.1:8000`), so the API needs no CORS. A page reload means signing in again: the access token lives in memory only.
+Sign in as `admin@skyhaul.dev` with `DEV_ADMIN_PASSWORD` from `.env`. `make up` creates that admin (or syncs its password when you edit `.env`), so there is one login to remember: `make env` generates a random password, and you can replace it in `.env` with one you like (12+ characters; leave it empty to skip the dev admin). The admin comes from the local-only `dev-admin` compose service (profile `dev`), not from a deploy. Drones appear on the map; to see one move, fly it from Claude Code with the simulator tools (see below). `make seed` is idempotent. The dev server proxies `/api` and `/socket.io` to `SKYHAUL_API_URL` (default `http://127.0.0.1:8000`), so the API needs no CORS. A page reload means signing in again: the access token lives in memory only.
 
 ## Use the simulator from Claude Code
 

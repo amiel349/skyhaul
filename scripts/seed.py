@@ -4,17 +4,16 @@
 Local test profile only. Needs `make up` and `make sim` running. Idempotent: a second run
 creates nothing new. Secrets stay out of argv, logs and git:
 
-- The admin password is generated once, printed once and kept in `secrets/seed-admin-password`
-  (git-ignored, mode 600) so a rerun can log in. `SEED_ADMIN_PASSWORD` overrides the file.
+- The admin is the dev admin that `make up` creates from DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD in
+  `.env`. Its password is read through `docker compose config`, in memory only.
 - The simulator control token is read inside the drone-sim container and never leaves it.
-- `.env` is never read here; docker compose reads it, as in the Makefile.
+- `.env` is never parsed here; docker compose reads it, as in the Makefile.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import secrets
 import subprocess
 import sys
 import urllib.error
@@ -25,11 +24,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = ["docker", "compose", "--env-file", ".env", "-f", "deploy/compose.yaml"]
 API = os.environ.get("SKYHAUL_API_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/v1"
-ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@skyhaul.dev")
 NAMESPACE = "dev"
 DRONES = 3
 DEFAULT_HOME = {"lat": 32.0, "lon": 34.8}  # the simulator's default SIM_HOME_*
-PASSWORD_FILE = ROOT / "secrets" / "seed-admin-password"
 
 # Runs inside the drone-sim container: request on stdin, token from its own environment.
 SIM_CALL = """
@@ -79,58 +76,31 @@ def api(
         return 0, fail(f"cannot reach the API at {API}; is `make up` running?")
 
 
-def admin_password() -> tuple[str, bool]:
-    """The password and whether it is new (to be created and printed)."""
-    given = os.environ.get("SEED_ADMIN_PASSWORD")
-    if given:
-        return given, False
-    if PASSWORD_FILE.exists():
-        return PASSWORD_FILE.read_text().strip(), False
-    return secrets.token_urlsafe(24), True
+def dev_admin() -> tuple[str, str]:
+    """The dev admin from .env, as docker compose resolves it. Parsed in memory, never printed.
 
-
-def ensure_admin(password: str, is_new: bool) -> None:
-    if not is_new:
-        return  # an earlier run (or the caller) created the admin
-    done = compose(
-        "exec",
-        "-T",
-        "api",
-        "flask",
-        "--app",
-        "skyhaul_api:create_app()",
-        "skyhaul",
-        "bootstrap",
-        "--admin-email",
-        ADMIN_EMAIL,
-        stdin=password + "\n",
-    )
+    `make up` has already created or synced this admin (service dev-admin, profile dev).
+    """
+    done = compose("--profile", "dev", "config", "--format", "json")
     if done.returncode != 0:
-        if "exists" in done.stderr:
-            fail(
-                f"{ADMIN_EMAIL} already exists but its password is not in "
-                f"{PASSWORD_FILE.relative_to(ROOT)}; set SEED_ADMIN_PASSWORD to it"
-            )
-        fail("could not create the admin (is the api container up?)")
-    PASSWORD_FILE.parent.mkdir(mode=0o700, exist_ok=True)
-    fd = os.open(PASSWORD_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(password + "\n")
-    print(f"Created admin {ADMIN_EMAIL}")
-    print(f"Password (shown once, also saved in {PASSWORD_FILE.relative_to(ROOT)}): {password}")
+        fail("docker compose could not read the stack config (run `make env` first)")
+    env = json.loads(done.stdout)["services"]["dev-admin"]["environment"]
+    email, password = env.get("DEV_ADMIN_EMAIL", ""), env.get("DEV_ADMIN_PASSWORD", "")
+    if not email or not password:
+        fail("DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD are empty in .env; set them and run `make up`")
+    return email, password
 
 
-def login(password: str) -> str:
-    status, body = api("POST", "/auth/login", {"email": ADMIN_EMAIL, "password": password})
+def login(email: str, password: str) -> str:
+    status, body = api("POST", "/auth/login", {"email": email, "password": password})
     if status != 200:
-        fail(f"admin login failed (HTTP {status})")
+        fail(f"dev admin login failed (HTTP {status}); run `make up` to sync it from .env")
     return str(body["access_token"])
 
 
 def main() -> None:
-    password, is_new = admin_password()
-    ensure_admin(password, is_new)
-    token = login(password)
+    email, password = dev_admin()
+    token = login(email, password)
 
     existing = sim("GET", f"/drones?namespace={NAMESPACE}")["drones"]
     if len(existing) < DRONES:
@@ -149,7 +119,7 @@ def main() -> None:
     print(
         f"Simulator: {len(drones)} drones in namespace '{NAMESPACE}'. Registered {registered} new."
     )
-    print(f"Sign in at the UI as {ADMIN_EMAIL}.")
+    print(f"Sign in at the UI as {email} (password: DEV_ADMIN_PASSWORD in .env).")
 
 
 if __name__ == "__main__":

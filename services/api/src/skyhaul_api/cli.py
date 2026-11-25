@@ -6,6 +6,7 @@ it runs with the spec app: ``flask --app 'skyhaul_api:create_spec_app()'``)."""
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from skyhaul_api import broker_init
 from skyhaul_api.audit.service import record
-from skyhaul_api.auth.passwords import hash_password
+from skyhaul_api.auth.passwords import hash_password, verify_password
 from skyhaul_api.database import SESSIONS_KEY
 from skyhaul_api.openapi import export_spec, spec_differences
 from skyhaul_api.users.schemas import UserCreateSchema
@@ -96,6 +97,59 @@ def bootstrap_command(admin_email: str) -> None:
         )
         session.commit()
     click.echo("admin created")
+
+
+@skyhaul_cli.command("ensure-admin")
+def ensure_admin_command() -> None:
+    """Local development: make sure the admin in DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD exists.
+
+    Creates it, or syncs the password and role when `.env` changed. Does nothing when the
+    password is empty. Never prints the password.
+    """
+    email = os.environ.get("DEV_ADMIN_EMAIL", "").strip()
+    password = os.environ.get("DEV_ADMIN_PASSWORD", "")
+    if not email or not password:
+        click.echo("no dev admin configured (DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD); skipped")
+        return
+    try:
+        body = UserCreateSchema().load({"email": email, "password": password, "role": "admin"})
+    except ValidationError as exc:
+        fields = ", ".join(sorted(exc.messages_dict))
+        raise click.ClickException(
+            f"invalid {fields} (the password needs 12 to 1024 characters)"
+        ) from None
+    sessions: sessionmaker[Session] | None = current_app.extensions.get(SESSIONS_KEY)
+    if sessions is None:
+        raise click.ClickException("this app has no database; use skyhaul_api:create_app")
+    with sessions() as session:
+        user = session.scalar(select(User).where(User.email == body["email"]))
+        if user is None:
+            user = User(email=body["email"], password_hash=hash_password(password), role=Role.ADMIN)
+            session.add(user)
+            outcome = "created"
+        elif (
+            verify_password(user.password_hash, password)
+            and user.role == Role.ADMIN
+            and user.is_active
+        ):
+            click.echo("dev admin is up to date")
+            return
+        else:
+            user.password_hash = hash_password(password)
+            user.role = Role.ADMIN
+            user.is_active = True
+            outcome = "updated"
+        session.flush()
+        record(
+            session,
+            action="user.bootstrap",
+            outcome="success",
+            actor=None,
+            target_type="user",
+            target_id=str(user.id),
+        )
+        session.commit()
+    click.echo(f"dev admin {outcome}")
 
 
 @skyhaul_cli.command("broker-init")

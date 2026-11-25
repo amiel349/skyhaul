@@ -13,8 +13,8 @@ setup: ## Install Python and web dependencies and git hooks
 env: ## Create .env with generated secrets
 	./scripts/gen-env.sh
 
-up: ## Start the local stack
-	$(COMPOSE) up -d --build --wait
+up: ## Start the local stack (and create or sync the dev admin from .env)
+	$(COMPOSE) --profile dev up -d --build --wait
 
 sim: ## Start RabbitMQ and the drone simulator with its control API (test profile)
 	$(COMPOSE) --profile test up -d --build --wait rabbitmq drone-sim
@@ -23,7 +23,7 @@ seed: ## Create a local admin and a few drones (needs make up and make sim)
 	python3 scripts/seed.py
 
 down: ## Stop the local stack
-	$(COMPOSE) --profile test down
+	$(COMPOSE) --profile dev --profile test down
 
 # `make down -v` would be make's own -v (--version), so the volume reset has its own target.
 # It addresses the stack by project name, not by compose file: the file needs every .env key to
