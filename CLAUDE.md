@@ -44,6 +44,7 @@ Python: `uv run pytest`, `uv run ruff check .`, `uv run mypy`. Web (in `web/`): 
 - Simulator: three long-lived threads. The consumer (main) decodes and dispatches. The scheduler ticks every 100 ms. The publisher is the only thread that sends, on its own connection. Periodic state lives on an in-memory jobs board behind one lock. Handlers never sleep and never publish. See `docs/adr/0003-simulator-threading.md`.
 - Tests isolate by namespace plus a reset call, not by a fresh environment per test. See `docs/adr/0004-test-isolation.md`.
 - Push every check to the lowest test layer that can prove it.
+- Web component tests: every `.vue` file has a sibling test file with the same name (`PanelSplitter.vue` and `PanelSplitter.test.ts`) that renders only that component. Data-backed components bring their own `<Component>.fakes.ts` (fake db and fake endpoints); nothing global, no shared mount helper. See `.claude/skills/web-component-tests/`.
 
 ## Security rules (public repo)
 

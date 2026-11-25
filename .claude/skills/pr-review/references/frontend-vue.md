@@ -39,3 +39,5 @@ Applies to `web/**`.
 - Test behavior the user sees: render, interact, assert on text and roles. No assertions on internal component state.
 - Network is mocked with MSW at the HTTP layer, not by stubbing the API client module.
 - Stores are tested for their actions, including rollback paths.
+- Every new or changed `.vue` file has a sibling test file with the same name that renders only that component (`PanelSplitter.vue` and `PanelSplitter.test.ts`). A component without one is should-fix; see the `web-component-tests` skill.
+- Fake data and fake endpoints are per component (`Foo.fakes.ts`) and typed from the generated API types. An import of another component's fakes, a global fake db, or a shared mount helper is should-fix.
