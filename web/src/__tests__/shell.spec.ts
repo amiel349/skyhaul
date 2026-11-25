@@ -2,9 +2,9 @@ import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor, within } from "@testing-library/vue";
 import { createPinia, setActivePinia } from "pinia";
 import { describe, expect, it, vi } from "vitest";
-import basemapRaw from "../assets/basemap.geojson?raw";
 import FleetView from "../views/FleetView.vue";
-import { baseStyle } from "../components/markerStyle";
+import { initialsOf } from "../components/avatar";
+import { TILES, tileUrlFor } from "../components/tiles";
 import { batteryView, linkChip } from "../components/status";
 import { useAuthStore } from "../stores/auth";
 import { useSelectionStore } from "../stores/selection";
@@ -30,9 +30,7 @@ describe("visual shell", () => {
     await mountView([drone("d1"), lost, drone("d3", null)]);
 
     expect(await screen.findByTestId("fleet-row-d1")).toBeTruthy();
-    expect(screen.getByTestId("fleet-logout")).toBeTruthy();
     expect(screen.getByTestId("connection-badge")).toBeTruthy();
-    expect(screen.getByTestId("fleet-user").textContent).toBe("a@skyhaul.dev");
     expect(screen.getByTestId("fleet-row-chip-d1").textContent).toBe("UP");
     expect(screen.getByTestId("fleet-row-chip-d2").textContent).toBe("LOST");
     expect(screen.getByTestId("fleet-row-battery-d2").textContent).toContain("LOW 12%");
@@ -106,17 +104,76 @@ describe("visual shell", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("draws the local base layer and loads no tiles in test mode", async () => {
+  it("shows the initials in the avatar and the login and role in the menu", async () => {
+    await mountView([drone("d1")]);
+    const user = userEvent.setup();
+    expect(screen.getByTestId("user-avatar").textContent?.trim()).toBe("A");
+    expect(initialsOf("amiel.lejzor@x.dev")).toBe("AL");
+
+    await user.click(screen.getByTestId("user-avatar"));
+
+    expect(screen.getByTestId("user-avatar").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("user-menu-email").textContent).toBe("a@skyhaul.dev");
+    expect(screen.getByTestId("user-menu-role").textContent).toBe("admin");
+  });
+
+  it("closes the menu with Escape (focus back on the avatar) and on an outside click", async () => {
+    await mountView([drone("d1")]);
+    const user = userEvent.setup();
+    const avatar = screen.getByTestId("user-avatar");
+
+    await user.click(avatar);
+    expect(screen.getByTestId("user-menu")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("user-menu")).toBeNull();
+    expect(document.activeElement).toBe(avatar);
+
+    await user.click(avatar);
+    await user.click(document.body);
+    expect(screen.queryByTestId("user-menu")).toBeNull();
+  });
+
+  it("applies the theme chosen in the menu at once and marks it", async () => {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.clear();
+    await mountView([drone("d1")]);
+    useThemeStore().init();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("user-avatar"));
+    expect(screen.getByTestId("theme-option-dark").getAttribute("aria-checked")).toBe("true");
+    await user.click(screen.getByTestId("theme-option-light"));
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(screen.getByTestId("theme-option-light").getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("logs out from the menu and closes it", async () => {
+    const { pinia } = await mountView([drone("d1")]);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("user-avatar"));
+    await user.click(screen.getByTestId("user-menu-logout"));
+
+    expect(useAuthStore(pinia).token).toBeNull();
+    expect(screen.queryByTestId("user-menu")).toBeNull();
+  });
+
+  it("picks the tile url from the theme, an override for both, and none in test mode", () => {
+    expect(tileUrlFor("dark", "development")).toBe(TILES.dark);
+    expect(tileUrlFor("light", "development")).toBe(TILES.light);
+    expect(TILES.dark).toContain("alidade_smooth_dark");
+    expect(tileUrlFor("dark", "development", "https://t.example/{z}")).toBe("https://t.example/{z}");
+    expect(tileUrlFor("dark", "test", "https://t.example/{z}")).toBeUndefined();
+  });
+
+  it("loads no tiles in the map under test", async () => {
     vi.stubEnv("VITE_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png");
     await mountView([drone("d1")]);
-
-    await waitFor(() => expect(screen.getByTestId("fleet-map").dataset.base).toBe("ready"));
-
+    expect(screen.getByTestId("fleet-map").dataset.tileUrl).toBe("");
     expect(document.querySelector(".leaflet-tile")).toBeNull();
-    expect(screen.queryByTestId("basemap-unavailable")).toBeNull();
-    expect(document.querySelector(".leaflet-control-attribution")?.textContent).toContain(
-      "© OpenStreetMap contributors (ODbL)",
-    );
     vi.unstubAllEnvs();
   });
 });
@@ -130,7 +187,7 @@ describe("theme", () => {
     expect(resolveTheme("purple", true)).toBe("light");
   });
 
-  it("toggles on the root element, keeps only the theme name in storage, and the map styles follow the tokens", async () => {
+  it("sets the root element and keeps only the theme name in storage", async () => {
     document.documentElement.removeAttribute("data-theme");
     localStorage.clear();
     const pinia = createPinia();
@@ -139,7 +196,7 @@ describe("theme", () => {
     theme.init();
     expect(theme.resolved).toBe("dark");
 
-    theme.toggle();
+    theme.set("light");
 
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(theme.resolved).toBe("light");
@@ -147,10 +204,63 @@ describe("theme", () => {
     expect(Object.keys(localStorage)).toEqual([THEME_KEY]);
     expect(sessionStorage.length).toBe(0);
 
-    document.documentElement.style.setProperty("--land", "#111111");
-    document.documentElement.style.setProperty("--road", "#222222");
-    expect(baseStyle("land").fillColor).toBe("#111111");
-    expect(baseStyle("road").color).toBe("#222222");
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("logs out from the menu and closes it", async () => {
+    const { pinia } = await mountView([drone("d1")]);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("user-avatar"));
+    await user.click(screen.getByTestId("user-menu-logout"));
+
+    expect(useAuthStore(pinia).token).toBeNull();
+    expect(screen.queryByTestId("user-menu")).toBeNull();
+  });
+
+  it("picks the tile url from the theme, an override for both, and none in test mode", () => {
+    expect(tileUrlFor("dark", "development")).toBe(TILES.dark);
+    expect(tileUrlFor("light", "development")).toBe(TILES.light);
+    expect(TILES.dark).toContain("alidade_smooth_dark");
+    expect(tileUrlFor("dark", "development", "https://t.example/{z}")).toBe("https://t.example/{z}");
+    expect(tileUrlFor("dark", "test", "https://t.example/{z}")).toBeUndefined();
+  });
+
+  it("loads no tiles in the map under test", async () => {
+    vi.stubEnv("VITE_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png");
+    await mountView([drone("d1")]);
+    expect(screen.getByTestId("fleet-map").dataset.tileUrl).toBe("");
+    expect(document.querySelector(".leaflet-tile")).toBeNull();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("theme", () => {
+  it("resolves the attribute over the system setting and ignores unknown values", () => {
+    expect(resolveTheme(null, false)).toBe("dark");
+    expect(resolveTheme(null, true)).toBe("light");
+    expect(resolveTheme("light", false)).toBe("light");
+    expect(resolveTheme("dark", true)).toBe("dark");
+    expect(resolveTheme("purple", true)).toBe("light");
+  });
+
+  it("sets the root element and keeps only the theme name in storage", async () => {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.clear();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const theme = useThemeStore();
+    theme.init();
+    expect(theme.resolved).toBe("dark");
+
+    theme.set("light");
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(theme.resolved).toBe("light");
+    expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    expect(Object.keys(localStorage)).toEqual([THEME_KEY]);
+    expect(sessionStorage.length).toBe(0);
+
     document.documentElement.removeAttribute("data-theme");
   });
 });
@@ -162,31 +272,5 @@ describe("status views", () => {
     expect(batteryView(140).width).toBe(100);
     expect(batteryView(null).text).toBe("No data");
     expect(linkChip({ id: "d", name: "d", state: liveState({ link: "LOST" }) }).text).toBe("LOST");
-  });
-});
-
-describe("base map file", () => {
-  it("is valid GeoJSON, around the depot, under 100 KB", () => {
-    expect(new Blob([basemapRaw]).size).toBeLessThan(100 * 1024);
-    const data = JSON.parse(basemapRaw) as {
-      type: string;
-      features: { properties: { kind: string }; geometry: { coordinates: unknown } }[];
-    };
-    expect(data.type).toBe("FeatureCollection");
-    const kinds = new Set(data.features.map((f) => f.properties.kind));
-    expect(kinds).toContain("road");
-    expect(kinds).toContain("coast");
-    expect(kinds).toContain("land");
-
-    const flat = (c: unknown): number[][] =>
-      Array.isArray(c) && typeof c[0] === "number" ? [c as number[]] : (c as unknown[]).flatMap(flat);
-    for (const f of data.features) {
-      for (const [lon, lat] of flat(f.geometry.coordinates)) {
-        expect(lat).toBeGreaterThan(31.97);
-        expect(lat).toBeLessThan(32.03);
-        expect(lon).toBeGreaterThan(34.73);
-        expect(lon).toBeLessThan(34.84);
-      }
-    }
   });
 });

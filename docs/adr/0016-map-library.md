@@ -1,6 +1,6 @@
 # 0016 · Map library: Leaflet
 
-Status: proposed · 2026-11-25 · amended 2026-11-25 (local base layer is the default) · changes the blueprint's MapLibre GL choice
+Status: proposed · 2026-11-25 · amended 2026-11-25 (tiles are the default again) · changes the blueprint's MapLibre GL choice
 
 ## Context
 
@@ -9,8 +9,9 @@ The fleet view shows about 200 drones, each updating one to two times per second
 ## Decision
 
 - Leaflet 1.9 with the canvas renderer (`circleMarker`, `setLatLng` on update).
-- Default base layer (amendment): a local GeoJSON file, `web/src/assets/basemap.geojson`, with land, coastline and main roads around the simulator depot, built from OpenStreetMap through the Overpass API by `scripts/build_basemap.py` (ODbL; the map shows "© OpenStreetMap contributors (ODbL)"). It stays under 100 KB, is styled from the CSS tokens (ADR 0017) and needs no tile server and no network. If it fails to load, markers show on a plain themed background with a "Base map unavailable" notice.
-- Raster XYZ tiles are optional: they are added on top of the local layer only when `VITE_TILE_URL` is set and the mode is not `test`. Tile providers: Stadia Maps `alidade_smooth` (no key on localhost; CARTO was the first choice but now requires an API key). A public demo (M7) needs a free Stadia account with a domain-locked key, or another provider. Tile URL and attribution come from `VITE_TILE_URL` and `VITE_TILE_ATTRIBUTION`. Never `tile.openstreetmap.org` (its usage policy forbids app and heavy use). Tests load no network tiles; Playwright routes tile requests to a blank image.
+- Base layer: raster XYZ tiles from Stadia Maps `alidade_smooth` (light theme) and `alidade_smooth_dark` (dark theme); the layer URL follows the theme live. Stadia needs no key on localhost; a public demo (M7) needs a free account with a domain-locked key, or another provider. Attribution: "© Stadia Maps © OpenMapTiles © OpenStreetMap contributors". `VITE_TILE_URL` (optional) overrides both with one fixed URL, and `VITE_TILE_ATTRIBUTION` is its attribution. Never `tile.openstreetmap.org` (its usage policy forbids app and heavy use); CARTO was the first choice but now requires an API key.
+- History: an earlier amendment replaced tiles with a hand-built local GeoJSON layer (no network). It did not read well (one big land polygon, roads not visible), so it was removed and tiles are the default again.
+- Tests load no network tiles, even if `VITE_TILE_URL` is set (mode `test`); Playwright routes tile requests to a blank image.
 
 ## Consequences
 

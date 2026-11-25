@@ -69,7 +69,8 @@ describe("dispatcher UI", () => {
     const map = await screen.findByTestId("fleet-map");
     await waitFor(() => expect(map.getAttribute("data-marker-count")).toBe("1"));
 
-    await user.click(screen.getByTestId("fleet-logout"));
+    await user.click(screen.getByTestId("user-avatar"));
+    await user.click(screen.getByTestId("user-menu-logout"));
     expect(await screen.findByTestId("login-form")).toBeTruthy();
     await router.back();
     expect(await screen.findByTestId("login-form")).toBeTruthy();

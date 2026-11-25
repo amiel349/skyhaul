@@ -24,17 +24,3 @@ export function markerLook(drone: FleetDrone, selected = false): MarkerLook {
     path: selected ? { ...base, color: token("--ink"), weight: 4, dashArray: undefined } : base,
   };
 }
-
-export type BaseKind = "land" | "coast" | "road";
-
-/** Style of a base-layer feature, from the tokens. Land is a fill; coast and roads are lines. */
-export function baseStyle(kind: string | undefined): PathOptions {
-  switch (kind) {
-    case "land":
-      return { stroke: false, fill: true, fillColor: token("--land"), fillOpacity: 1 };
-    case "coast":
-      return { color: token("--coast"), weight: 2, fill: false };
-    default:
-      return { color: token("--road"), weight: 2, fill: false };
-  }
-}

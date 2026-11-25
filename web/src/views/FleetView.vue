@@ -4,7 +4,7 @@ import ConnectionBadge from "../components/ConnectionBadge.vue";
 import DronePanel from "../components/DronePanel.vue";
 import FleetList from "../components/FleetList.vue";
 import FleetMap from "../components/FleetMap.vue";
-import ThemeToggle from "../components/ThemeToggle.vue";
+import UserMenu from "../components/UserMenu.vue";
 import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 
@@ -28,19 +28,7 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
       </div>
       <ConnectionBadge />
       <div class="spacer" />
-      <ThemeToggle />
-      <span
-        class="user"
-        data-testid="fleet-user"
-      >{{ auth.user?.email }}</span>
-      <button
-        type="button"
-        class="logout"
-        data-testid="fleet-logout"
-        @click="auth.logout()"
-      >
-        Log out
-      </button>
+      <UserMenu />
     </header>
     <p
       v-if="fleet.loaded.failed"
@@ -107,21 +95,6 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
 .spacer {
   flex: 1;
 }
-.user {
-  color: var(--muted);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.logout {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-.logout:hover {
-  border-color: var(--accent);
-}
 .msg {
   margin: 0;
   color: var(--muted);
@@ -139,6 +112,9 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
   min-width: 0;
 }
 .alerts {
+  flex: 1;
+  min-height: 260px;
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -171,9 +147,6 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
   .area-list {
     overflow-y: auto;
     min-height: 0;
-  }
-  .area-map > :first-child {
-    flex: 1;
   }
 }
 </style>

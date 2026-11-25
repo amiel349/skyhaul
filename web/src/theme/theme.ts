@@ -57,8 +57,7 @@ export const useThemeStore = defineStore("theme", () => {
     });
   }
 
-  function toggle(): void {
-    const next: Theme = resolved.value === "dark" ? "light" : "dark";
+  function set(next: Theme): void {
     document.documentElement.setAttribute("data-theme", next);
     readAttribute(); // do not wait for the observer
     try {
@@ -68,7 +67,7 @@ export const useThemeStore = defineStore("theme", () => {
     }
   }
 
-  return { resolved, init, toggle };
+  return { resolved, init, set };
 });
 
 /** Current value of a CSS token (for canvas drawing, which cannot use var()). */
