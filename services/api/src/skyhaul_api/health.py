@@ -15,6 +15,7 @@ from flask import Flask, Response, current_app, jsonify
 from flask_smorest import Blueprint
 from sqlalchemy import Engine, text
 
+from skyhaul_api.auth.permissions import public
 from skyhaul_api.openapi import REQUEST_ID_HEADERS, REQUEST_ID_PARAMETER, schema_ref
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ def redis_check(client: redis.Redis) -> ReadinessCheck:
     parameters=[REQUEST_ID_PARAMETER],
 )
 @blp.response(200, schema_ref("Health"), description="OK", headers=REQUEST_ID_HEADERS)
+@public
 def healthz() -> Response:
     return jsonify(status="ok")
 
@@ -75,6 +77,7 @@ def healthz() -> Response:
 )
 @blp.response(200, schema_ref("Readiness"), description="Ready", headers=REQUEST_ID_HEADERS)
 @blp.alt_response(503, schema=schema_ref("Readiness"), description="Not ready")
+@public
 def readyz() -> Response:
     checks: dict[str, ReadinessCheck | None] = current_app.extensions.get(CHECKS_KEY, {})
     results = {name: check() if check else False for name, check in checks.items()}

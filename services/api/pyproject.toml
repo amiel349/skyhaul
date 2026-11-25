@@ -5,10 +5,13 @@ description = "Skyhaul fleet API"
 requires-python = ">=3.12"
 dependencies = [
     "apispec>=6.10.1",
+    "argon2-cffi>=25.1",
     "flask>=3.1",
+    "flask-limiter>=3.12",
     "flask-smorest>=0.47.0",
     "gunicorn>=23.0",
     "marshmallow>=4.4.0",
+    "pyjwt>=2.10",
     "skyhaul-fleet-core",
 ]
 

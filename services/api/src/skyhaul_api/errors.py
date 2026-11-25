@@ -122,6 +122,13 @@ def _validation_fields(exc: HTTPException) -> dict[str, list[str]] | None:
     return fields or None
 
 
+def flatten_messages(messages: Any) -> dict[str, list[str]]:
+    """Marshmallow messages of one body, keyed by dotted field path."""
+    fields: dict[str, list[str]] = {}
+    _flatten(messages, "", fields)
+    return fields
+
+
 def _flatten(node: Any, prefix: str, out: dict[str, list[str]]) -> None:
     if isinstance(node, dict):
         for key, value in node.items():
