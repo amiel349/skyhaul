@@ -1,4 +1,13 @@
-"""The ingestor against real Postgres, Redis and RabbitMQ (#27), the simulator as a source."""
+"""The ingestor against real Postgres, Redis and RabbitMQ (#27), the simulator as a source.
+
+Deferred tests (light test mode; #19 owns the load ones):
+- Throughput at 200 drones, prefetch tuning, poison-message flood, restart mid-batch under
+  load, Redis down while Postgres is up (#19).
+- A real SIGTERM to a subprocess ingestor (last flush, exit 0) and the broker-loss exit 1.
+- MISSION_STATUS and ALERT emitted by the simulator itself (here they are published by the
+  test through the Codec); the API E2E suite covers the simulator flow end to end.
+- The registry cache seeing a soft delete only after its 30 s TTL.
+"""
 
 from __future__ import annotations
 

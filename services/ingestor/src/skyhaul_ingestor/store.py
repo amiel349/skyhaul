@@ -11,6 +11,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+# Session.execute is typed as Result, which has no rowcount; for INSERT and DELETE it is a
+# CursorResult, which does.
+
 RETENTION_BATCH: Final = 10_000
 
 
