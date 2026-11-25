@@ -278,17 +278,23 @@ def test_postgres_outage_acks_nothing_and_recovery_writes_everything_once(
             {"u": "ingestor"},
         )
     try:
-        acked = running.counters["acked"]
         for pct in (90.0, 80.0, 70.0, 60.0):
             publish(battery(drone_id, pct), "")
-        wait_until(lambda: running.counters["flush_errors"] >= 2, what="failed flushes")
-        assert running.counters["acked"] == acked
+
+        def held() -> int:
+            # In the unacked batch: a failed flush raises before its ack and keeps it.
+            return sum(1 for i in list(running.ingestor.batch.items) if i.drone_id == drone_id)
+
+        wait_until(lambda: held() == 4, what="the messages in the batch")
+        errors = running.counters["flush_errors"]
+        wait_until(lambda: running.counters["flush_errors"] > errors, what="a failed flush")
+        assert held() == 4
         assert rows(engine, drone_id) == []
     finally:
         with engine.begin() as conn:
             conn.execute(text("ALTER ROLE ingestor LOGIN"))
     wait_until(lambda: len(rows(engine, drone_id)) == 4, what="the writes after recovery")
-    assert running.counters["acked"] >= acked + 4
+    wait_until(lambda: not running.ingestor.batch.items, what="the ack")
     running.close()
     assert len(rows(engine, drone_id)) == 4
 
