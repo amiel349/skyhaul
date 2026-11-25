@@ -16,7 +16,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": { target, changeOrigin: true },
-      "/socket.io": { target, ws: true, changeOrigin: true },
+      // No changeOrigin here: the API only accepts a WebSocket whose Origin matches its Host, so
+      // the proxy must forward the browser's Host (localhost:5173) together with its Origin.
+      "/socket.io": { target, ws: true },
     },
   },
   test: {
