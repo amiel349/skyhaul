@@ -44,7 +44,7 @@ make check   # lint, types, tests, secret scan
 **Upgrading a stack from before M2 realtime (#29):** existing stacks need `make down -v` once, that is `docker compose down -v` (run it as `make down-volumes`: plain `make down -v` is make's own version flag). The Postgres roles come from an init script that runs only on a fresh volume, and `.env` needs the new keys (`DB_OWNER_PASSWORD`, `DB_API_PASSWORD`, `DB_INGESTOR_PASSWORD`, `AMQP_API_PASSWORD`, `AMQP_INGESTOR_PASSWORD`). Once:
 
 ```sh
-make down-volumes     # docker compose down -v: drops the local database volume
+make down-volumes     # docker compose down -v: drops the local database volume (works with an old .env)
 rm .env && make env   # new secrets for every key; or add the new keys to .env with your own random values
 make up
 ```
