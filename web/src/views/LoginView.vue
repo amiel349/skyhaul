@@ -15,6 +15,8 @@ const error = ref<string | null>(null);
 const missing = ref(false);
 
 const expired = computed(() => auth.notice === "expired");
+// Both inputs are described by the message that is showing, so a screen reader reads it with the field.
+const describedBy = computed(() => (missing.value ? "login-missing-msg" : error.value ? "login-error-msg" : undefined));
 
 async function submit(): Promise<void> {
   missing.value = !email.value.trim() || !password.value;
@@ -60,6 +62,7 @@ async function submit(): Promise<void> {
         v-model="email"
         type="email"
         autocomplete="username"
+        :aria-describedby="describedBy"
         data-testid="login-email"
       >
       <label for="login-password">Password</label>
@@ -68,10 +71,12 @@ async function submit(): Promise<void> {
         v-model="password"
         type="password"
         autocomplete="current-password"
+        :aria-describedby="describedBy"
         data-testid="login-password"
       >
       <p
         v-if="missing"
+        id="login-missing-msg"
         role="alert"
         data-testid="login-missing"
       >
@@ -79,6 +84,7 @@ async function submit(): Promise<void> {
       </p>
       <p
         v-if="error"
+        id="login-error-msg"
         role="alert"
         data-testid="login-error"
       >

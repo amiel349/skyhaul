@@ -20,17 +20,18 @@ describe("App", () => {
   it("renders the page of the current route inside the app shell", async () => {
     await renderApp("/login");
 
+    // The shell is a plain wrapper with no role or text, so it is found by its test id.
     await expect.element(page.getByTestId("app-shell")).toBeInTheDocument();
-    await expect.element(page.getByTestId("login-submit")).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
   it("leaves a protected page for the login page when the token is gone", async () => {
     const { pinia, router } = await renderApp("/", true);
-    await expect.element(page.getByTestId("fleet-list")).toBeInTheDocument();
+    await expect.element(page.getByRole("list")).toBeInTheDocument();
 
     useAuthStore(pinia).token = null;
 
     await expect.poll(() => router.currentRoute.value.name).toBe("login");
-    await expect.element(page.getByTestId("login-submit")).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 });

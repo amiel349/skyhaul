@@ -14,19 +14,22 @@ async function renderLogin(route = "/login") {
   return { pinia, router };
 }
 
+const submitButton = () => page.getByRole("button", { name: "Sign in" });
+
 async function signIn(email: string, password: string) {
-  await userEvent.fill(page.getByTestId("login-email"), email);
-  await userEvent.fill(page.getByTestId("login-password"), password);
-  await userEvent.click(page.getByTestId("login-submit"));
+  await userEvent.fill(page.getByLabelText("Email"), email);
+  await userEvent.fill(page.getByLabelText("Password"), password);
+  await userEvent.click(submitButton());
 }
 
 describe("LoginView", () => {
   it("blocks empty fields", async () => {
     await renderLogin();
 
-    await userEvent.click(page.getByTestId("login-submit"));
+    await userEvent.click(submitButton());
 
-    await expect.element(page.getByTestId("login-missing")).toHaveTextContent("Enter email and password");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Enter email and password");
+    await expect.element(page.getByLabelText("Email")).toHaveAccessibleDescription("Enter email and password");
   });
 
   it("shows wrong credentials as one message", async () => {
@@ -35,7 +38,7 @@ describe("LoginView", () => {
 
     await signIn("a@skyhaul.dev", "bad");
 
-    await expect.element(page.getByTestId("login-error")).toHaveTextContent("Wrong email or password");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Wrong email or password");
   });
 
   it("shows the Retry-After hint on a 429", async () => {
@@ -44,7 +47,7 @@ describe("LoginView", () => {
 
     await signIn("a@skyhaul.dev", "pw");
 
-    await expect.element(page.getByTestId("login-error")).toHaveTextContent("Try again later (in 30 s)");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Try again later (in 30 s)");
   });
 
   it("signs in, keeps the token in the store and goes to the page it came from", async () => {
@@ -62,6 +65,6 @@ describe("LoginView", () => {
 
     useAuthStore(pinia).logout("expired");
 
-    await expect.element(page.getByTestId("login-expired")).toHaveTextContent("Session expired. Sign in again.");
+    await expect.element(page.getByRole("status")).toHaveTextContent("Session expired. Sign in again.");
   });
 });
