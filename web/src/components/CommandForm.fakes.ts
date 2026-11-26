@@ -1,9 +1,9 @@
 // Fake db and endpoints for CommandForm only: POST /drones/{id}/commands, with switches for the answer.
 import { http, HttpResponse } from "msw";
 import type { ApiError, Command } from "../api/types";
-import { apiUrl, type Body } from "../testing/api";
-import { makeCommand } from "../testing/factories/command";
-import { registerReset } from "../testing/reset";
+import { apiUrl, type Body } from "../../tests/api";
+import { makeCommand } from "../../tests/factories/command";
+import { registerReset } from "../../tests/reset";
 
 type Mode = "202" | "422" | "429" | "503" | "409";
 

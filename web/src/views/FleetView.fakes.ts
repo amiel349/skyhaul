@@ -2,8 +2,8 @@
 // and one drone by id for a deep link.
 import { http, HttpResponse } from "msw";
 import type { Drone } from "../api/types";
-import { apiUrl, type Ok } from "../testing/api";
-import { registerReset } from "../testing/reset";
+import { apiUrl, type Ok } from "../../tests/api";
+import { registerReset } from "../../tests/reset";
 
 export const fakeDb = {
   drones: new Map<string, Drone>(),

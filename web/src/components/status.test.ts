@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeLiveState } from "../testing/factories/live-state";
+import { makeLiveState } from "../../tests/factories/live-state";
 import { batteryView, linkChip } from "./status";
 
 describe("status views", () => {

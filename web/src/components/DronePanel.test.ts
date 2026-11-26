@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
-import { makeDrone } from "../testing/factories/drone";
-import { makeDroneStateEvent } from "../testing/factories/drone-state-event";
-import { makeLiveState } from "../testing/factories/live-state";
-import { makeUser } from "../testing/factories/user";
-import { worker } from "../testing/worker";
+import { makeDrone } from "../../tests/factories/drone";
+import { makeDroneStateEvent } from "../../tests/factories/drone-state-event";
+import { makeLiveState } from "../../tests/factories/live-state";
+import { makeUser } from "../../tests/factories/user";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./DronePanel.fakes";
 import DronePanel from "./DronePanel.vue";
 

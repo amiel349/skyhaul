@@ -2,12 +2,12 @@ import { createPinia, setActivePinia } from "pinia";
 import { http, HttpResponse } from "msw";
 import { nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeDrone } from "../testing/factories/drone";
-import { server, url } from "../testing/node-server";
+import { makeDrone } from "../../tests/factories/drone";
+import { server, url } from "../../tests/node-server";
 import { useFleetStore } from "./fleet";
 import { useSelectionStore } from "./selection";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => setActivePinia(createPinia()));
 

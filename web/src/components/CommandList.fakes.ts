@@ -1,8 +1,8 @@
 // Fake db and endpoints for CommandList only: GET /drones/{id}/commands.
 import { http, HttpResponse } from "msw";
 import type { Command } from "../api/types";
-import { apiUrl, type Ok } from "../testing/api";
-import { registerReset } from "../testing/reset";
+import { apiUrl, type Ok } from "../../tests/api";
+import { registerReset } from "../../tests/reset";
 
 export const fakeDb = {
   commands: [] as Command[],

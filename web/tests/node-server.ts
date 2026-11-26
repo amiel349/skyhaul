@@ -1,7 +1,7 @@
 // Fake API for the jsdom unit tests (stores): MSW in Node, typed from the generated API types.
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import type { Drone } from "../api/types";
+import type { Drone } from "../src/api/types";
 import type { Ok } from "./api";
 import { makeUser } from "./factories/user";
 

@@ -1,16 +1,16 @@
 import { createPinia, setActivePinia } from "pinia";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeDrone } from "../testing/factories/drone";
-import { makeDroneStateEvent } from "../testing/factories/drone-state-event";
-import { makeLiveState } from "../testing/factories/live-state";
-import { fake } from "../testing/fake-socket";
-import { listDrones, loginOk, server, url } from "../testing/node-server";
+import { makeDrone } from "../../tests/factories/drone";
+import { makeDroneStateEvent } from "../../tests/factories/drone-state-event";
+import { makeLiveState } from "../../tests/factories/live-state";
+import { fake } from "../../tests/fake-socket";
+import { listDrones, loginOk, server, url } from "../../tests/node-server";
 import { useAuthStore } from "./auth";
 import { useConnectionStore } from "./connection";
 import { useFleetStore } from "./fleet";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => {
   setActivePinia(createPinia());

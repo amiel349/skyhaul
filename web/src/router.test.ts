@@ -4,7 +4,7 @@ import { createMemoryHistory } from "vue-router";
 import { createAppRouter } from "./router";
 import { useAuthStore } from "./stores/auth";
 
-vi.mock("./realtime/socket", async () => await import("./testing/fake-socket"));
+vi.mock("./realtime/socket", async () => await import("../tests/fake-socket"));
 
 beforeEach(() => setActivePinia(createPinia()));
 

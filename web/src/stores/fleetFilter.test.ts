@@ -1,10 +1,10 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeLiveState } from "../testing/factories/live-state";
+import { makeLiveState } from "../../tests/factories/live-state";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => setActivePinia(createPinia()));
 

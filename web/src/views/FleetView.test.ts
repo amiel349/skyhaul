@@ -6,13 +6,13 @@ import { useAuthStore } from "../stores/auth";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
-import { makeDrone } from "../testing/factories/drone";
-import { fake } from "../testing/fake-socket";
-import { worker } from "../testing/worker";
+import { makeDrone } from "../../tests/factories/drone";
+import { fake } from "../../tests/fake-socket";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./FleetView.fakes";
 import FleetView from "./FleetView.vue";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => fake.reset());
 

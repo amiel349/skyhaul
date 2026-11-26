@@ -1,7 +1,7 @@
 // Global hooks for component tests (Vitest browser project). No test data, no mount helper.
 import { createPinia, setActivePinia } from "pinia";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
-import "../styles/global.css";
+import "../src/styles/global.css";
 import { runResets } from "./reset";
 import { worker } from "./worker";
 

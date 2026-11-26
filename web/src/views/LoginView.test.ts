@@ -4,7 +4,7 @@ import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
-import { worker } from "../testing/worker";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./LoginView.fakes";
 import LoginView from "./LoginView.vue";
 

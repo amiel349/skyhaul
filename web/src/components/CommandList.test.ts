@@ -3,8 +3,8 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
-import { makeCommand } from "../testing/factories/command";
-import { worker } from "../testing/worker";
+import { makeCommand } from "../../tests/factories/command";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./CommandList.fakes";
 import CommandList from "./CommandList.vue";
 

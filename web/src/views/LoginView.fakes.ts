@@ -1,9 +1,9 @@
 // Fake db and endpoint for this view only: the user table behind POST /auth/login.
 import { http, HttpResponse } from "msw";
 import type { User } from "../api/types";
-import { apiUrl, type Body, type Ok } from "../testing/api";
-import { makeUser } from "../testing/factories/user";
-import { registerReset } from "../testing/reset";
+import { apiUrl, type Body, type Ok } from "../../tests/api";
+import { makeUser } from "../../tests/factories/user";
+import { registerReset } from "../../tests/reset";
 
 interface Account {
   user: User;

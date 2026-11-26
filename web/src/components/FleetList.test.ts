@@ -3,10 +3,10 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useFleetStore } from "../stores/fleet";
-import { makeDrone } from "../testing/factories/drone";
-import { makeDroneStateEvent } from "../testing/factories/drone-state-event";
-import { makeLiveState } from "../testing/factories/live-state";
-import { worker } from "../testing/worker";
+import { makeDrone } from "../../tests/factories/drone";
+import { makeDroneStateEvent } from "../../tests/factories/drone-state-event";
+import { makeLiveState } from "../../tests/factories/live-state";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./FleetList.fakes";
 import FleetList from "./FleetList.vue";
 

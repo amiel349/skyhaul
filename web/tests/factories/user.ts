@@ -1,4 +1,4 @@
-import type { User } from "../../api/types";
+import type { User } from "../../src/api/types";
 
 export function makeUser(over: Partial<User> = {}): User {
   return {

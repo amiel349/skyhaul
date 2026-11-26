@@ -1,6 +1,6 @@
 // Type helpers for fake endpoints: the body types come from the generated OpenAPI types, so a
 // contract change breaks `pnpm typecheck` in every fake that no longer matches.
-import type { paths } from "../api/types";
+import type { paths } from "../src/api/types";
 
 type Method = "get" | "post";
 

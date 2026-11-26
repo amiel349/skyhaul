@@ -1,4 +1,4 @@
-import type { DroneStateEvent } from "../../api/types";
+import type { DroneStateEvent } from "../../src/api/types";
 import { makeLiveState } from "./live-state";
 
 export function makeDroneStateEvent(over: Partial<DroneStateEvent> = {}): DroneStateEvent {

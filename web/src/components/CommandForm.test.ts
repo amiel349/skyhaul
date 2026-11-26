@@ -3,7 +3,7 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
-import { worker } from "../testing/worker";
+import { worker } from "../../tests/worker";
 import { fakeDb, fakeEndpoints } from "./CommandForm.fakes";
 import CommandForm from "./CommandForm.vue";
 

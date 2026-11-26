@@ -3,12 +3,12 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../stores/auth";
-import { makeUser } from "../testing/factories/user";
+import { makeUser } from "../../tests/factories/user";
 import { THEME_KEY, useThemeStore } from "../theme/theme";
 import UserMenu from "./UserMenu.vue";
 
 // The socket module is the one thing the auth store's logout reaches outside the page.
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 // Renders only UserMenu, for a signed-in user, with the theme store started on a dark page.
 async function renderMenu(email = "a@skyhaul.dev") {

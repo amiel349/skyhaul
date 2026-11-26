@@ -1,4 +1,4 @@
-import type { DroneLiveState } from "../../api/types";
+import type { DroneLiveState } from "../../src/api/types";
 
 export function makeLiveState(over: Partial<DroneLiveState> = {}): DroneLiveState {
   return {

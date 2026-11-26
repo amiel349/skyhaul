@@ -1,4 +1,4 @@
-import type { Command } from "../../api/types";
+import type { Command } from "../../src/api/types";
 
 export function makeCommand(over: Partial<Command> = {}): Command {
   return {
