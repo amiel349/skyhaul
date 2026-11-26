@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import AlertBadge from "../components/AlertBadge.vue";
 import AlertList from "../components/AlertList.vue";
 import ConnectionBadge from "../components/ConnectionBadge.vue";
 import DronePanel from "../components/DronePanel.vue";
@@ -56,7 +55,6 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
         Sky<span>haul</span>
       </div>
       <ConnectionBadge />
-      <AlertBadge />
       <div class="spacer" />
       <UserMenu />
     </header>

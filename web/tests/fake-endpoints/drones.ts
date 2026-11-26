@@ -19,4 +19,11 @@ export const droneEndpoints = {
   respondWith(status: number) {
     return http.get(apiUrl("/drones"), () => new HttpResponse(null, { status }));
   },
+  /** Override: GET /drones answers with the fake table only after `gate` resolves (the first load stays running). */
+  holdUntil(gate: Promise<void>) {
+    return http.get(apiUrl("/drones"), async () => {
+      await gate;
+      return HttpResponse.json<Ok<"/drones", "get">>({ items: fakeDb.drones.list(), next_cursor: null });
+    });
+  },
 };

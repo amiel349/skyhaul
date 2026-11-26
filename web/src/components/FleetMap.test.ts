@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { fakeDb } from "../../tests/fake-db";
+import { droneEndpoints } from "../../tests/fake-endpoints";
+import { worker } from "../../tests/worker";
 import { renderComponent } from "../../tests/render";
 import FleetMap from "./FleetMap.vue";
 
@@ -172,5 +174,44 @@ describe("FleetMap", () => {
     container.style.width = "400px";
 
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+  });
+
+  it("says there is no live data when drones are registered but none has a position, and hides it once one does", async () => {
+    const { pinia } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
+
+    await expect.element(page.getByRole("status")).toMatchTextContent("No live data yet");
+    await expect.element(page.getByRole("status")).toMatchTextContent("Start the simulator: make sim, then make seed");
+    useFleetStore(pinia).applyState(
+      droneStateEventFaketory.build({ drone_id: "d1", state: liveStateFaketory.build({ position: at(32.1, 34.9) }) }),
+    );
+
+    await expect.element(page.getByText("No live data yet")).not.toBeInTheDocument();
+  });
+
+  it("leaves out the simulator hint in a production build", async () => {
+    vi.stubEnv("DEV", false);
+
+    await renderMap(droneFaketory.build({ id: "d1", state: null }));
+
+    await expect.element(page.getByText("No live data yet")).toBeInTheDocument();
+    await expect.element(page.getByText(/Start the simulator/)).not.toBeInTheDocument();
+  });
+
+  it("shows no notice while the first load runs, or when there are no drones", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    worker.use(droneEndpoints.holdUntil(gate));
+    fakeDb.drones.add(droneFaketory.build({ id: "d1", state: null }));
+    const { pinia } = await renderComponent(FleetMap);
+    const loading = useFleetStore(pinia).loadAll();
+    await expect.element(page.getByText("No live data yet")).not.toBeInTheDocument();
+
+    release();
+    await loading;
+    await expect.element(page.getByText("No live data yet")).toBeInTheDocument();
+
+    fakeDb.drones.reset();
+    await useFleetStore(pinia).loadAll();
+    await expect.element(page.getByText("No live data yet")).not.toBeInTheDocument();
   });
 });

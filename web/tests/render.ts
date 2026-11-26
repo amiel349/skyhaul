@@ -12,6 +12,8 @@ import { userFaketory } from "./faketories";
 
 export interface RenderOptions {
   props?: Record<string, unknown>;
+  /** Slot content by slot name, as plain text. */
+  slots?: Record<string, string>;
   /** Non-prop attributes on the root element (class, style, ...). */
   attrs?: Record<string, unknown>;
   /** Start the app's router (memory history) at this route and install it. Omit it for a component with no router. */
@@ -58,6 +60,6 @@ export async function renderComponent(
   }
 
   const plugins: Plugin[] = [pinia, ...(router ? [router] : []), ...(options.plugins ?? [])];
-  const view = await render(component, { props: options.props, attrs: options.attrs, global: { plugins } });
+  const view = await render(component, { props: options.props, slots: options.slots, attrs: options.attrs, global: { plugins } });
   return Object.assign(view, { pinia, router });
 }

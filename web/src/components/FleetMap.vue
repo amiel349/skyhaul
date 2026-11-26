@@ -18,6 +18,11 @@ const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
 const center = ref({ lat: 32.0, lon: 34.8 });
+// Drones are registered but none has reported a position: the map is empty for a reason worth saying.
+const noLiveData = computed(
+  () => fleet.loaded.done && fleet.list.length > 0 && fleet.list.every((drone) => !drone.state?.position),
+);
+const devHint = import.meta.env.DEV;
 const tileUrlAttr = computed(() => tileUrl() ?? "");
 
 let map: L.Map | null = null;
@@ -186,6 +191,18 @@ onBeforeUnmount(() => {
         :data-center-lon="center.lon.toFixed(5)"
         :data-tile-url="tileUrlAttr"
       />
+      <div
+        v-if="noLiveData"
+        class="notice"
+        role="status"
+        data-testid="map-no-live-data"
+      >
+        <strong>No live data yet</strong>
+        <span
+          v-if="devHint"
+          class="mono"
+        >Start the simulator: make sim, then make seed</span>
+      </div>
     </div>
   </section>
 </template>
@@ -219,5 +236,29 @@ h2 {
 .map {
   position: absolute;
   inset: 0;
+}
+.notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px;
+  text-align: center;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
 }
 </style>

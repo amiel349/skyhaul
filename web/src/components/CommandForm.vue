@@ -3,11 +3,14 @@ import { computed, reactive, ref, watch } from "vue";
 import type { DirectCommandType } from "../api/types";
 import { COMMAND_TYPES, FIELDS, validatePayload, type FieldErrors, type FieldName } from "../commands/payload";
 import { useCommandsStore } from "../stores/commands";
+import AppButton from "./AppButton.vue";
+import AppSelect from "./AppSelect.vue";
 
 const props = defineProps<{ droneId: string; linkLost: boolean }>();
 
 const commands = useCommandsStore();
 const type = ref<DirectCommandType>("ARM");
+const typeOptions = COMMAND_TYPES.map((name) => ({ value: name, label: name }));
 const values = reactive<Partial<Record<FieldName, string>>>({});
 const fieldErrors = ref<FieldErrors>({});
 const error = ref<string | null>(null);
@@ -75,20 +78,14 @@ async function submit(): Promise<void> {
       Link lost. The drone may not receive this command. You can still send it.
     </p>
     <div class="row">
-      <label for="command-type">Command</label>
-      <select
+      <AppSelect
         id="command-type"
-        v-model="type"
+        :model-value="type"
+        label="Command"
+        :options="typeOptions"
         data-testid="command-type"
-      >
-        <option
-          v-for="name in COMMAND_TYPES"
-          :key="name"
-          :value="name"
-        >
-          {{ name }}
-        </option>
-      </select>
+        @update:model-value="type = $event as DirectCommandType"
+      />
     </div>
     <div
       v-for="spec in fields"
@@ -123,14 +120,15 @@ async function submit(): Promise<void> {
     >
       {{ error }}
     </p>
-    <button
+    <AppButton
       type="submit"
       class="send"
-      :disabled="sending"
+      variant="primary"
+      :loading="sending"
       data-testid="command-send"
     >
       {{ sending ? "Sending..." : "Send" }}
-    </button>
+    </AppButton>
   </form>
 </template>
 
@@ -150,7 +148,6 @@ label {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-select,
 input {
   background: var(--panel-2);
   color: var(--ink);
@@ -160,9 +157,7 @@ input {
   font: inherit;
   min-width: 0;
 }
-select:focus-visible,
-input:focus-visible,
-.send:focus-visible {
+input:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -185,16 +180,5 @@ input[aria-invalid="true"] {
 }
 .send {
   align-self: flex-start;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  padding: 7px 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.send:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 </style>

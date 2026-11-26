@@ -6,6 +6,9 @@ import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { formatTimestamp } from "./format";
+import AlertBadge from "./AlertBadge.vue";
+import AppButton from "./AppButton.vue";
+import AppSelect from "./AppSelect.vue";
 import StatusChip from "./StatusChip.vue";
 import type { Tone } from "./status";
 
@@ -31,6 +34,16 @@ const droneOptions = computed(() => {
   return [...ids].sort().map((id) => ({ id, name: droneName(id) }));
 });
 
+const severityOptions = SEVERITIES.map((value) => ({ value, label: value === "ALL" ? "All severities" : value }));
+const OPEN_OPTIONS = [
+  { value: "open", label: "Open only" },
+  { value: "all", label: "All alerts" },
+];
+const droneSelectOptions = computed(() => [
+  { value: "", label: "All drones" },
+  ...droneOptions.value.map((drone) => ({ value: drone.id, label: drone.name })),
+]);
+
 const needsAck = (alert: Alert): boolean => !alert.cleared_at && !alert.acknowledged_at;
 const ackedBy = (alert: Alert): string =>
   alert.acknowledged_by && alert.acknowledged_by === auth.user?.id ? "you" : (alert.acknowledged_by ?? "unknown");
@@ -46,53 +59,31 @@ const ackedBy = (alert: Alert): string =>
       <h2 id="alerts-heading">
         Alerts
       </h2>
-      <label for="alerts-severity">Severity</label>
-      <select
+      <AlertBadge :show-label="false" />
+      <AppSelect
         id="alerts-severity"
-        :value="alerts.filter.severity"
+        label="Severity"
+        :model-value="alerts.filter.severity"
+        :options="severityOptions"
         data-testid="alerts-filter-severity"
-        @change="alerts.setFilter({ severity: ($event.target as HTMLSelectElement).value as SeverityFilter })"
-      >
-        <option
-          v-for="option in SEVERITIES"
-          :key="option"
-          :value="option"
-        >
-          {{ option === "ALL" ? "All severities" : option }}
-        </option>
-      </select>
-      <label for="alerts-drone">Drone</label>
-      <select
+        @update:model-value="alerts.setFilter({ severity: $event as SeverityFilter })"
+      />
+      <AppSelect
         id="alerts-drone"
-        :value="alerts.filter.droneId"
+        label="Drone"
+        :model-value="alerts.filter.droneId"
+        :options="droneSelectOptions"
         data-testid="alerts-filter-drone"
-        @change="alerts.setFilter({ droneId: ($event.target as HTMLSelectElement).value })"
-      >
-        <option value="">
-          All drones
-        </option>
-        <option
-          v-for="drone in droneOptions"
-          :key="drone.id"
-          :value="drone.id"
-        >
-          {{ drone.name }}
-        </option>
-      </select>
-      <label for="alerts-open">Show</label>
-      <select
+        @update:model-value="alerts.setFilter({ droneId: $event })"
+      />
+      <AppSelect
         id="alerts-open"
-        :value="alerts.filter.openOnly ? 'open' : 'all'"
+        label="Show"
+        :model-value="alerts.filter.openOnly ? 'open' : 'all'"
+        :options="OPEN_OPTIONS"
         data-testid="alerts-filter-open"
-        @change="alerts.setFilter({ openOnly: ($event.target as HTMLSelectElement).value === 'open' })"
-      >
-        <option value="open">
-          Open only
-        </option>
-        <option value="all">
-          All alerts
-        </option>
-      </select>
+        @update:model-value="alerts.setFilter({ openOnly: $event === 'open' })"
+      />
     </div>
     <p
       v-if="alerts.loadError.failed"
@@ -144,6 +135,18 @@ const ackedBy = (alert: Alert): string =>
             class="mono muted"
             :data-testid="`alert-raised-${alert.id}`"
           >{{ formatTimestamp(alert.raised_at) }}</span>
+          <AppButton
+            v-if="canAck && needsAck(alert)"
+            class="ack"
+            variant="secondary"
+            size="sm"
+            :loading="alerts.acking.has(alert.id)"
+            :aria-label="`Acknowledge ${alert.code} on ${droneName(alert.drone_id)}`"
+            :data-testid="`alert-ack-${alert.id}`"
+            @click="void alerts.ack(alert.id)"
+          >
+            Acknowledge
+          </AppButton>
         </div>
         <!-- Drone text is untrusted: always interpolated, never HTML. -->
         <div :data-testid="`alert-message-${alert.id}`">
@@ -163,17 +166,6 @@ const ackedBy = (alert: Alert): string =>
         >
           Cleared at {{ formatTimestamp(alert.cleared_at) }}
         </div>
-        <button
-          v-if="canAck && needsAck(alert)"
-          type="button"
-          class="ack"
-          :disabled="alerts.acking.has(alert.id)"
-          :aria-label="`Acknowledge ${alert.code} on ${droneName(alert.drone_id)}`"
-          :data-testid="`alert-ack-${alert.id}`"
-          @click="void alerts.ack(alert.id)"
-        >
-          Acknowledge
-        </button>
         <p
           v-if="alerts.ackError.get(alert.id)"
           class="err"
@@ -213,12 +205,8 @@ const ackedBy = (alert: Alert): string =>
   text-transform: uppercase;
   color: var(--muted);
 }
-.head label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
+.head > .field {
+  width: 150px;
 }
 .note {
   margin: 0;
@@ -248,6 +236,7 @@ const ackedBy = (alert: Alert): string =>
   overflow-wrap: anywhere;
 }
 .line {
+  align-self: stretch;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -261,6 +250,9 @@ const ackedBy = (alert: Alert): string =>
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
+}
+.ack {
+  margin-left: auto;
 }
 .mono {
   font-family: var(--font-mono);

@@ -120,6 +120,7 @@ describe("CommandForm", () => {
 
     await send().click();
     await expect.element(send()).toBeDisabled();
+    await expect.element(send()).toHaveTextContent("Sending...");
     release();
     await expect.element(send()).toBeEnabled();
 
