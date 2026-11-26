@@ -13,6 +13,7 @@ describe("fleet socket", () => {
       onConnect: vi.fn(),
       onDisconnect: vi.fn(),
       onDroneState: vi.fn(),
+      onCommandUpdated: vi.fn(),
       onAuthError: vi.fn(),
     });
 
@@ -25,5 +26,20 @@ describe("fleet socket", () => {
     const cb = vi.fn();
     options.auth(cb);
     expect(cb).toHaveBeenCalledWith({ token: "tok-1" });
+  });
+
+  it("passes command.updated events to the handler", () => {
+    const on = vi.fn();
+    io.mockReturnValueOnce({ on, disconnect: vi.fn(), removeAllListeners: vi.fn() });
+    const onCommandUpdated = vi.fn();
+    openFleetSocket(() => "tok-1", {
+      onConnect: vi.fn(),
+      onDisconnect: vi.fn(),
+      onDroneState: vi.fn(),
+      onCommandUpdated,
+      onAuthError: vi.fn(),
+    });
+
+    expect(on).toHaveBeenCalledWith("command.updated", onCommandUpdated);
   });
 });

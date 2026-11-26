@@ -2,21 +2,44 @@ import { createPinia } from "pinia";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
+import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { makeDrone } from "../testing/factories/drone";
 import { makeDroneStateEvent } from "../testing/factories/drone-state-event";
 import { makeLiveState } from "../testing/factories/live-state";
+import { makeUser } from "../testing/factories/user";
 import { worker } from "../testing/worker";
 import { fakeDb, fakeEndpoints } from "./DronePanel.fakes";
 import DronePanel from "./DronePanel.vue";
 
 // Renders only DronePanel; the fleet store is filled through the fake GET /drones.
-async function renderPanel(selected: string | null, ...drones: ReturnType<typeof makeDrone>[]) {
+// CommandForm and CommandList have their own tests, so they are stubbed here.
+async function renderPanel(
+  selected: string | null,
+  ...drones: ReturnType<typeof makeDrone>[]
+) {
+  return renderPanelAs("dispatcher", selected, ...drones);
+}
+
+async function renderPanelAs(
+  role: "admin" | "dispatcher" | "viewer",
+  selected: string | null,
+  ...drones: ReturnType<typeof makeDrone>[]
+) {
   fakeDb.add(...drones);
   worker.use(...fakeEndpoints);
   const pinia = createPinia();
-  await render(DronePanel, { global: { plugins: [pinia] } });
+  useAuthStore(pinia).user = makeUser({ role });
+  await render(DronePanel, {
+    global: {
+      plugins: [pinia],
+      stubs: {
+        CommandForm: { props: ["droneId", "linkLost"], template: '<div data-testid="command-form-stub" :data-link-lost="linkLost">{{ droneId }}</div>' },
+        CommandList: { props: ["droneId"], template: '<div data-testid="command-list-stub">{{ droneId }}</div>' },
+      },
+    },
+  });
   await useFleetStore(pinia).loadAll();
   useSelectionStore(pinia).select(selected);
   return { pinia, fleet: useFleetStore(pinia), selection: useSelectionStore(pinia) };
@@ -25,14 +48,14 @@ async function renderPanel(selected: string | null, ...drones: ReturnType<typeof
 const text = (id: string) => page.getByTestId(`drone-panel-${id}`);
 
 describe("DronePanel", () => {
-  it("asks to select a drone and shows an empty command log", async () => {
+  it("asks to select a drone and shows an empty command log for a dispatcher", async () => {
     await renderPanel(null, makeDrone());
 
     await expect.element(page.getByTestId("drone-panel-empty")).toHaveTextContent("Select a drone");
     await expect.element(page.getByTestId("command-log-empty")).toHaveTextContent("No commands yet");
   });
 
-  it("shows every detail of the selected drone, with commands disabled", async () => {
+  it("shows every detail of the selected drone", async () => {
     const state = makeLiveState({
       flight_state: "HOVERING",
       armed: true,
@@ -59,9 +82,27 @@ describe("DronePanel", () => {
     await expect.element(text("speed")).toHaveTextContent("7 m/s");
     await expect.element(text("target")).toHaveTextContent("32.50000, 34.90000");
     await expect.element(text("mission")).toHaveTextContent("6f1c1c2e-0000-4000-8000-000000000001");
-    for (const id of ["take-off", "return-home", "land"]) {
-      await expect.element(page.getByTestId(`drone-panel-cmd-${id}`)).toBeDisabled();
-    }
+  });
+
+  it("shows the command form and list for the open drone to a dispatcher", async () => {
+    await renderPanel("d1", makeDrone({ id: "d1" }));
+
+    await expect.element(page.getByTestId("command-form-stub")).toHaveTextContent("d1");
+    await expect.element(page.getByTestId("command-list-stub")).toHaveTextContent("d1");
+  });
+
+  it("tells the form the link is lost", async () => {
+    await renderPanel("d1", makeDrone({ id: "d1", state: makeLiveState({ link: "LOST" }) }));
+
+    await expect.element(page.getByTestId("command-form-stub")).toHaveAttribute("data-link-lost", "true");
+  });
+
+  it("shows no command form and no command log to a viewer", async () => {
+    await renderPanelAs("viewer", "d1", makeDrone({ id: "d1" }));
+
+    await expect.element(text("name")).toBeInTheDocument();
+    expect(page.getByTestId("drone-panel-commands").elements()).toHaveLength(0);
+    expect(page.getByTestId("command-log").elements()).toHaveLength(0);
   });
 
   it("updates the values when a drone.state event arrives for the open drone", async () => {

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { Drone, DroneLiveState, DroneStateEvent } from "../api/types";
 import { closeFleetSocket, openFleetSocket } from "../realtime/socket";
 import { useAuthStore } from "./auth";
+import { useCommandsStore } from "./commands";
 import { useConnectionStore } from "./connection";
 
 /** A drone as the map needs it; `name` falls back to the id until the registry answers. */
@@ -103,6 +104,7 @@ export const useFleetStore = defineStore("fleet", () => {
       },
       onDisconnect: () => connection.set("reconnecting"),
       onDroneState: applyState,
+      onCommandUpdated: (event) => useCommandsStore().applyUpdate(event),
       onAuthError: () => auth.logout("expired"),
     });
   }
