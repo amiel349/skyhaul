@@ -1,16 +1,14 @@
-import { createPinia } from "pinia";
 import { page } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
 import { worker } from "../../tests/worker";
+import { renderComponent } from "../../tests/render";
 import { fakeDb } from "../../tests/fake-db";
 import { commandEndpoints } from "../../tests/fake-endpoints";
 import CommandForm from "./CommandForm.vue";
 
 async function renderForm(linkLost = false) {
-  const pinia = createPinia();
-  await render(CommandForm, { props: { droneId: "d1", linkLost }, global: { plugins: [pinia] } });
+  const { pinia } = await renderComponent(CommandForm, { props: { droneId: "d1", linkLost } });
   return useCommandsStore(pinia);
 }
 

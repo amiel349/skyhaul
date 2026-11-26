@@ -1,15 +1,13 @@
-import { createPinia } from "pinia";
 import { commandFaketory } from "../../tests/faketories";
 import { page } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
 import { fakeDb } from "../../tests/fake-db";
+import { renderComponent } from "../../tests/render";
 import CommandList from "./CommandList.vue";
 
 async function renderList() {
-  const pinia = createPinia();
-  await render(CommandList, { props: { droneId: "d1" }, global: { plugins: [pinia] } });
+  const { pinia } = await renderComponent(CommandList, { props: { droneId: "d1" } });
   return useCommandsStore(pinia);
 }
 

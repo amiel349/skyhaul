@@ -1,25 +1,19 @@
-import { createPinia } from "pinia";
-import { userFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../stores/auth";
 import { THEME_KEY, useThemeStore } from "../theme/theme";
 import UserMenu from "./UserMenu.vue";
+import { renderComponent } from "../../tests/render";
 
 // The socket module is the one thing the auth store's logout reaches outside the page.
 vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 // Renders only UserMenu, for a signed-in user, with the theme store started on a dark page.
-async function renderMenu(email = "a@skyhaul.dev") {
+async function renderMenu() {
   document.documentElement.setAttribute("data-theme", "dark");
-  const pinia = createPinia();
-  await render(UserMenu, { global: { plugins: [pinia] } });
-  const auth = useAuthStore(pinia);
-  auth.token = "tok-1";
-  auth.user = userFaketory.build({ email });
+  const { pinia } = await renderComponent(UserMenu, { user: { role: "admin" } });
   useThemeStore(pinia).init();
-  return { auth };
+  return { auth: useAuthStore(pinia) };
 }
 
 describe("UserMenu", () => {

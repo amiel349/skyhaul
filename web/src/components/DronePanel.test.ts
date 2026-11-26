@@ -1,16 +1,13 @@
-import { createPinia } from "pinia";
-import { droneFaketory, droneStateEventFaketory, liveStateFaketory, userFaketory } from "../../tests/faketories";
+import { commandFaketory, droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
-import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { fakeDb } from "../../tests/fake-db";
+import { renderComponent } from "../../tests/render";
 import DronePanel from "./DronePanel.vue";
 
-// Renders only DronePanel; the fleet store is filled through the fake GET /drones.
-// CommandForm and CommandList have their own tests, so they are stubbed here.
+// Renders DronePanel with its real children; the fleet store is filled through the fake GET /drones.
 async function renderPanel(
   selected: string | null,
   ...drones: ReturnType<typeof droneFaketory.build>[]
@@ -24,17 +21,7 @@ async function renderPanelAs(
   ...drones: ReturnType<typeof droneFaketory.build>[]
 ) {
   fakeDb.drones.add(...drones);
-  const pinia = createPinia();
-  useAuthStore(pinia).user = userFaketory.build({ role });
-  await render(DronePanel, {
-    global: {
-      plugins: [pinia],
-      stubs: {
-        CommandForm: { props: ["droneId", "linkLost"], template: '<div data-testid="command-form-stub" :data-link-lost="linkLost">{{ droneId }}</div>' },
-        CommandList: { props: ["droneId"], template: '<div data-testid="command-list-stub">{{ droneId }}</div>' },
-      },
-    },
-  });
+  const { pinia } = await renderComponent(DronePanel, { user: { role } });
   await useFleetStore(pinia).loadAll();
   useSelectionStore(pinia).select(selected);
   return { pinia, fleet: useFleetStore(pinia), selection: useSelectionStore(pinia) };
@@ -80,16 +67,18 @@ describe("DronePanel", () => {
   });
 
   it("shows the command form and list for the open drone to a dispatcher", async () => {
+    fakeDb.commands.add(commandFaketory.build({ id: "cmd-d1", drone_id: "d1", type: "LAND" }));
+
     await renderPanel("d1", droneFaketory.build({ id: "d1" }));
 
-    await expect.element(page.getByTestId("command-form-stub")).toHaveTextContent("d1");
-    await expect.element(page.getByTestId("command-list-stub")).toHaveTextContent("d1");
+    await expect.element(page.getByTestId("command-form")).toBeInTheDocument();
+    await expect.element(page.getByTestId("command-row-cmd-d1")).toBeInTheDocument();
   });
 
   it("tells the form the link is lost", async () => {
     await renderPanel("d1", droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ link: "LOST" }) }));
 
-    await expect.element(page.getByTestId("command-form-stub")).toHaveAttribute("data-link-lost", "true");
+    await expect.element(page.getByTestId("command-link-warning")).toMatchTextContent("Link lost");
   });
 
   it("shows no command form and no command log to a viewer", async () => {

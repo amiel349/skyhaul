@@ -1,13 +1,13 @@
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import PanelSplitter from "./PanelSplitter.vue";
+import { renderComponent } from "../../tests/render";
 
-// Renders only PanelSplitter, in a real browser. Its parent is replaced by prop handlers.
+// Renders only PanelSplitter, in a real browser. The parent's v-model and reset handlers are passed as props.
 async function renderSplitter(over: Record<string, unknown> = {}, attrs: Record<string, unknown> = {}) {
   const onUpdate = vi.fn();
   const onReset = vi.fn();
-  await render(PanelSplitter, {
+  await renderComponent(PanelSplitter, {
     props: {
       modelValue: 270,
       min: 200,

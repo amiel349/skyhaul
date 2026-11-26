@@ -1,13 +1,10 @@
-import { createPinia } from "pinia";
 import { droneFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAuthStore } from "../stores/auth";
-import { createMemoryHistory, createRouter } from "vue-router";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { fake } from "../../tests/fake-socket";
+import { renderComponent } from "../../tests/render";
 import { worker } from "../../tests/worker";
 import { fakeDb } from "../../tests/fake-db";
 import { droneEndpoints } from "../../tests/fake-endpoints";
@@ -17,33 +14,11 @@ vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"
 
 beforeEach(() => fake.reset());
 
-// Renders only FleetView, signed in. The panels it lays out are stubs; the splitters are real.
-async function renderView(path = "/") {
-  const pinia = createPinia();
-  useAuthStore(pinia).token = "tok-1";
-  // The view's own two routes; it keeps the URL and the selection in step.
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: "/", name: "fleet", component: FleetView },
-      { path: "/drones/:id", name: "drone", component: FleetView },
-    ],
-  });
-  await router.push(path);
-  const stub = (name: string) => ({ template: `<div data-testid="${name}-stub" />` });
-  const view = await render(FleetView, {
-    global: {
-      plugins: [pinia, router],
-      stubs: {
-        ConnectionBadge: stub("connection-badge"),
-        UserMenu: stub("user-menu"),
-        FleetList: stub("fleet-list"),
-        FleetMap: stub("fleet-map"),
-        DronePanel: stub("drone-panel"),
-      },
-    },
-  });
-  return { pinia, view, router };
+// Renders FleetView signed in as a dispatcher, with its real children (list, map, panel, splitters).
+// It keeps the URL and the selection in step, so it runs on the app's router.
+async function renderView(route = "/") {
+  const view = await renderComponent(FleetView, { route, user: { role: "dispatcher" } });
+  return { pinia: view.pinia, view, router: view.router };
 }
 
 const bar = (id: string) => page.getByTestId(id);

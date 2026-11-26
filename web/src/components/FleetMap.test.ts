@@ -1,20 +1,19 @@
 import L from "leaflet";
 import { droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
-import { createPinia } from "pinia";
 import { page } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { fakeDb } from "../../tests/fake-db";
+import { renderComponent } from "../../tests/render";
 import FleetMap from "./FleetMap.vue";
 
 // Renders only FleetMap, in a real browser (real canvas, real ResizeObserver), inside a box with a size.
 // The fleet store is filled through the fake GET /drones.
 async function renderMap(...drones: ReturnType<typeof droneFaketory.build>[]) {
   fakeDb.drones.add(...drones);
-  const pinia = createPinia();
-  const view = await render(FleetMap, { global: { plugins: [pinia] } });
+  const view = await renderComponent(FleetMap);
+  const { pinia } = view;
   // A grid box with a fixed size, so the map card stretches to fill it.
   view.container.style.cssText = "display: grid; grid-template-rows: 1fr; width: 600px; height: 400px";
   await useFleetStore(pinia).loadAll();

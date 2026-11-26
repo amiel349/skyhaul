@@ -1,17 +1,15 @@
-import { createPinia } from "pinia";
 import { droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useFleetStore } from "../stores/fleet";
 import { fakeDb } from "../../tests/fake-db";
+import { renderComponent } from "../../tests/render";
 import FleetList from "./FleetList.vue";
 
 // Renders only FleetList; the fleet store is filled through the fake GET /drones.
 async function renderList(...drones: ReturnType<typeof droneFaketory.build>[]) {
   fakeDb.drones.add(...drones);
-  const pinia = createPinia();
-  await render(FleetList, { global: { plugins: [pinia] } });
+  const { pinia } = await renderComponent(FleetList);
   await useFleetStore(pinia).loadAll();
   return pinia;
 }
