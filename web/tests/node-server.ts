@@ -18,5 +18,6 @@ export const loginOk = http.post(url("/auth/login"), () =>
     token_type: "Bearer",
     expires_in: 900,
     user: userFaketory.build(),
+    csrf_token: "c".repeat(43),
   }),
 );

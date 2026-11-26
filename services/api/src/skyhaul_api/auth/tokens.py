@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 
 import jwt
 
@@ -31,17 +32,21 @@ class TokenClaims:
 
 
 def issue_token(user_id: uuid.UUID, role: str, secret: str, now: datetime | None = None) -> str:
+    return issue_for({"sub": str(user_id), "role": role}, secret, now)
+
+
+def issue_for(claims: Mapping[str, Any], secret: str, now: datetime | None = None) -> str:
+    """An access token with ``claims`` (from ``sessions.access_claims``) plus the fixed ones."""
     issued = now or datetime.now(UTC)
-    claims = {
+    payload = {
+        **claims,
         "iss": ISSUER,
         "aud": AUDIENCE,
-        "sub": str(user_id),
-        "role": role,
         "iat": issued,
         "exp": issued + TOKEN_TTL,
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(claims, secret, algorithm=ALGORITHM)
+    return jwt.encode(payload, secret, algorithm=ALGORITHM)
 
 
 def verify_token(token: str, secret: str) -> uuid.UUID:

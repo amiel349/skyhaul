@@ -41,7 +41,9 @@ SPEC_OPTIONS: Final[dict[str, Any]] = {
             "this file and the UI generates types from it. Every operation needs a bearer JWT "
             "unless it has security: []. x-permission names the permission the server checks. "
             "Skyhaul serves a single organization. Lists use keyset pagination: ?limit= and an "
-            "opaque ?cursor=, answered as {items, next_cursor}."
+            "opaque ?cursor=, answered as {items, next_cursor}. Sessions: the access token is "
+            "renewed by POST /auth/refresh with an httpOnly refresh cookie and an X-CSRF-Token "
+            "header (ADR 0018)."
         ),
         "license": {"name": "MIT", "identifier": "MIT"},
     },

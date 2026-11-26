@@ -1,5 +1,6 @@
 """``flask spec`` (export or check the OpenAPI document), ``flask skyhaul bootstrap``
 (create the first admin; the password comes from stdin, never from an argument) and
+``flask skyhaul prune-sessions`` (delete long-expired refresh tokens) and
 ``flask skyhaul broker-init`` (broker users and topology; it reads only its own settings, so
 it runs with the spec app: ``flask --app 'skyhaul_api:create_spec_app()'``)."""
 
@@ -8,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -22,6 +24,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from skyhaul_api import broker_init
 from skyhaul_api.audit.service import record
+from skyhaul_api.auth import sessions as refresh_sessions
 from skyhaul_api.auth.passwords import hash_password, verify_password
 from skyhaul_api.database import SESSIONS_KEY
 from skyhaul_api.openapi import export_spec, spec_differences
@@ -163,6 +166,18 @@ def ensure_admin_command() -> None:
         )
         session.commit()
     click.echo(f"dev admin {outcome}")
+
+
+@skyhaul_cli.command("prune-sessions")
+def prune_sessions_command() -> None:
+    """Delete refresh tokens that expired more than a day ago (ADR 0018)."""
+    sessions: sessionmaker[Session] | None = current_app.extensions.get(SESSIONS_KEY)
+    if sessions is None:
+        raise click.ClickException("this app has no database; use skyhaul_api:create_app")
+    with sessions() as session:
+        deleted = refresh_sessions.prune(session, datetime.now(UTC))
+        session.commit()
+    click.echo(f"pruned {deleted} expired refresh tokens")
 
 
 @skyhaul_cli.command("broker-init")

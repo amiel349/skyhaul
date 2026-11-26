@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    LargeBinary,
     MetaData,
     Text,
     UniqueConstraint,
@@ -270,3 +271,25 @@ class AuditEntry(Base):
     ip: Mapped[str | None] = mapped_column(INET())
     ts: Mapped[datetime] = mapped_column(server_default=func.now())
     data: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+
+
+class RefreshToken(Base):
+    """One refresh token of a session family (ADR 0018). Only hashes are stored."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        Index("ix_refresh_tokens_family_id", "family_id"),
+        Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    family_id: Mapped[uuid.UUID]
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(), unique=True)
+    csrf_hash: Mapped[bytes] = mapped_column(LargeBinary())
+    issued_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    used_at: Mapped[datetime | None]
+    revoked_at: Mapped[datetime | None]
+    replaced_by: Mapped[uuid.UUID | None]
