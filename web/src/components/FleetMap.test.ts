@@ -190,6 +190,21 @@ describe("FleetMap", () => {
     await settleCanvas();
   });
 
+  it("ignores a click on the map when pick mode is off", async () => {
+    const { pinia } = await renderMap();
+    const pick = useMapPickStore(pinia);
+    await vi.waitFor(() => expect(Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0));
+    await frame();
+    await frame();
+
+    await userEvent.click(fleetMap()); // an ordinary click, not picking
+
+    expect(pick.picked).toBeNull();
+    expect(pick.target).toBeNull();
+    await expect.element(page.getByText("Target", { exact: true })).not.toBeInTheDocument();
+    await settleCanvas();
+  });
+
   it("does not pick when the map is dragged, and the map still pans", async () => {
     const { pinia } = await renderMap();
     const pick = useMapPickStore(pinia);
