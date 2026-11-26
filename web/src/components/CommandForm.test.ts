@@ -1,0 +1,129 @@
+import { createPinia } from "pinia";
+import { page } from "vitest/browser";
+import { render } from "vitest-browser-vue";
+import { describe, expect, it } from "vitest";
+import { useCommandsStore } from "../stores/commands";
+import { worker } from "../testing/worker";
+import { fakeDb, fakeEndpoints } from "./CommandForm.fakes";
+import CommandForm from "./CommandForm.vue";
+
+async function renderForm(linkLost = false) {
+  worker.use(...fakeEndpoints);
+  const pinia = createPinia();
+  await render(CommandForm, { props: { droneId: "d1", linkLost }, global: { plugins: [pinia] } });
+  return useCommandsStore(pinia);
+}
+
+const type = () => page.getByTestId("command-type");
+const send = () => page.getByTestId("command-send");
+const field = (name: string) => page.getByTestId(`command-field-${name}`);
+
+describe("CommandForm", () => {
+  it("offers the six direct commands and never START_MISSION", async () => {
+    await renderForm();
+
+    const options = [...type().element().querySelectorAll("option")].map((o) => o.value);
+    expect(options).toEqual(["ARM", "TAKEOFF", "GOTO", "RETURN_HOME", "LAND", "SET_SPEED"]);
+  });
+
+  it("shows the payload inputs of the picked type and posts {type, payload}", async () => {
+    await renderForm();
+
+    await type().selectOptions("GOTO");
+    await field("lat").fill("32.1");
+    await field("lon").fill("34.8");
+    await field("altitude_m").fill("30");
+    await send().click();
+
+    await expect.poll(() => fakeDb.requests.length).toBe(1);
+    expect(fakeDb.requests[0]?.droneId).toBe("d1");
+    expect(fakeDb.requests[0]?.body).toEqual({ type: "GOTO", payload: { lat: 32.1, lon: 34.8, altitude_m: 30 } });
+  });
+
+  it("adds a SENT row to the drone's command list on 202", async () => {
+    const store = await renderForm();
+
+    await send().click();
+
+    await expect.poll(() => store.forDrone("d1").map((c) => c.status)).toEqual(["SENT"]);
+  });
+
+  it("blocks an empty required field and an out-of-range number without calling the API", async () => {
+    await renderForm();
+    await type().selectOptions("TAKEOFF");
+
+    await send().click();
+    await expect.element(page.getByTestId("command-field-error-altitude_m")).toHaveTextContent("Required");
+
+    await field("altitude_m").fill("500");
+    await send().click();
+    await expect.element(page.getByTestId("command-field-error-altitude_m")).toMatchTextContent("Must be 5 to 120");
+    expect(fakeDb.requests).toHaveLength(0);
+  });
+
+  it("shows the server's field errors next to the inputs on 422", async () => {
+    fakeDb.mode = "422";
+    await renderForm();
+    await type().selectOptions("TAKEOFF");
+    await field("altitude_m").fill("30");
+
+    await send().click();
+
+    await expect.element(page.getByTestId("command-field-error-altitude_m")).toHaveTextContent("Too high for this drone");
+    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Invalid payload");
+  });
+
+  it("says Too many commands, wait, with the Retry-After seconds, on 429", async () => {
+    fakeDb.mode = "429";
+    await renderForm();
+
+    await send().click();
+
+    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Too many commands, wait 12 s");
+  });
+
+  it("shows an error and adds no row on 503 command_not_sent", async () => {
+    fakeDb.mode = "503";
+    const store = await renderForm();
+
+    await send().click();
+
+    await expect.element(page.getByTestId("command-error")).toHaveTextContent("The broker did not confirm");
+    expect(store.forDrone("d1")).toHaveLength(0);
+  });
+
+  it("shows the server detail on 409", async () => {
+    fakeDb.mode = "409";
+    await renderForm();
+
+    await send().click();
+
+    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Drone is on a mission");
+  });
+
+  it("warns when the link is lost but still lets the dispatcher send", async () => {
+    await renderForm(true);
+
+    await expect.element(page.getByTestId("command-link-warning")).toMatchTextContent("Link lost");
+    await expect.element(send()).toBeEnabled();
+  });
+
+  it("disables Send until the answer, and a retry reuses the Idempotency-Key", async () => {
+    fakeDb.mode = "503";
+    let release = () => {};
+    fakeDb.gate = new Promise<void>((resolve) => (release = resolve));
+    await renderForm();
+
+    await send().click();
+    await expect.element(send()).toBeDisabled();
+    release();
+    await expect.element(send()).toBeEnabled();
+
+    fakeDb.mode = "202";
+    await send().click();
+
+    await expect.poll(() => fakeDb.requests.length).toBe(2);
+    expect(fakeDb.requests[0]?.idempotencyKey).toBeTruthy();
+    expect(fakeDb.requests[1]?.idempotencyKey).toBe(fakeDb.requests[0]?.idempotencyKey);
+  });
+});

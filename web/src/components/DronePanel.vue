@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import BatteryBar from "./BatteryBar.vue";
+import CommandForm from "./CommandForm.vue";
+import CommandList from "./CommandList.vue";
 import { formatDuration, formatPoint, formatTimestamp, NO_DATA } from "./format";
 import StatusChip from "./StatusChip.vue";
 import { linkChip } from "./status";
 
+const auth = useAuthStore();
 const fleet = useFleetStore();
 const selection = useSelectionStore();
 const drone = computed(() => (selection.selectedId ? fleet.drones.get(selection.selectedId) : undefined));
 const state = computed(() => drone.value?.state ?? null);
 const position = computed(() => state.value?.position ?? null);
+// Viewers get no command UI at all (issue 44 does the full role-aware work).
+const canCommand = computed(() => auth.user !== null && auth.user.role !== "viewer");
 const stale = computed(() => state.value?.link === "LOST");
 const armed = computed(() => (state.value?.armed == null ? NO_DATA : state.value.armed ? "Yes" : "No"));
 </script>
@@ -189,32 +195,19 @@ const armed = computed(() => (state.value?.armed == null ? NO_DATA : state.value
           </div>
         </dl>
         <div
-          class="btns"
-          role="group"
-          aria-label="Drone commands"
+          v-if="canCommand"
           data-testid="drone-panel-commands"
         >
-          <button
-            v-for="name in ['Take off', 'Return home', 'Land']"
-            :key="name"
-            type="button"
-            class="btn"
-            disabled
-            :data-testid="`drone-panel-cmd-${name.toLowerCase().replace(' ', '-')}`"
-          >
-            {{ name }}
-          </button>
+          <CommandForm
+            :drone-id="drone.id"
+            :link-lost="stale"
+          />
         </div>
-        <p
-          class="muted"
-          data-testid="drone-panel-commands-note"
-        >
-          Commands arrive in a later release
-        </p>
       </div>
     </section>
 
     <section
+      v-if="canCommand"
       class="card"
       aria-labelledby="log-heading"
       data-testid="command-log"
@@ -222,12 +215,19 @@ const armed = computed(() => (state.value?.armed == null ? NO_DATA : state.value
       <h2 id="log-heading">
         Command log
       </h2>
-      <p
-        class="empty"
-        data-testid="command-log-empty"
-      >
-        No commands yet
-      </p>
+      <div class="log">
+        <CommandList
+          v-if="drone"
+          :drone-id="drone.id"
+        />
+        <p
+          v-else
+          class="empty"
+          data-testid="command-log-empty"
+        >
+          No commands yet
+        </p>
+      </div>
     </section>
   </div>
 </template>
@@ -312,20 +312,10 @@ dd {
   opacity: 0.6;
   font-style: italic;
 }
-.btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.log {
+  padding: 14px;
 }
-.btn {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 12px;
-  font-weight: 500;
-}
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.log .empty {
+  padding: 0;
 }
 </style>

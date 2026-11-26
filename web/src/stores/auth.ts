@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { api, configureApi } from "../api/client";
 import type { User } from "../api/types";
 import { closeFleetSocket } from "../realtime/socket";
+import { useCommandsStore } from "./commands";
 import { useConnectionStore } from "./connection";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
@@ -49,6 +50,7 @@ export const useAuthStore = defineStore("auth", () => {
     useFleetStore().clear();
     useSelectionStore().reset();
     useFleetFilterStore().reset();
+    useCommandsStore().reset();
     useConnectionStore().set("offline");
   }
 
