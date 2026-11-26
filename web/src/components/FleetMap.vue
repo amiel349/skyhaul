@@ -2,6 +2,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import area from "../../../contracts/geo/demo-area.v1.json";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { useThemeStore } from "../theme/theme";
@@ -17,7 +18,7 @@ const selection = useSelectionStore();
 const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
-const center = ref({ lat: 32.0, lon: 34.8 });
+const center = ref({ ...area.center });
 // Drones are registered but none has reported a position: the map is empty for a reason worth saying.
 const noLiveData = computed(
   () => fleet.loaded.done && fleet.list.length > 0 && fleet.list.every((drone) => !drone.state?.position),
@@ -29,6 +30,23 @@ let map: L.Map | null = null;
 let tiles: L.TileLayer | null = null;
 let sizeObserver: ResizeObserver | null = null;
 const markers = new Map<string, L.CircleMarker>();
+/** The map opens on the demo area once per mount, as soon as its box has a size. */
+let fitted = false;
+
+function fitAreaOnce(): void {
+  if (!map || fitted) return;
+  map.invalidateSize();
+  const size = map.getSize();
+  if (size.x === 0 || size.y === 0) return; // not laid out yet; the resize observer calls again
+  fitted = true;
+  map.fitBounds(
+    [
+      [area.bounds.lat_min, area.bounds.lon_min],
+      [area.bounds.lat_max, area.bounds.lon_max],
+    ],
+    { padding: [16, 16], animate: false },
+  );
+}
 
 function labelNode(
   id: string,
@@ -121,7 +139,7 @@ onMounted(() => {
   if (!container.value) return;
   map = L.map(container.value, {
     renderer: L.canvas(),
-    center: [32.0, 34.8],
+    center: [area.center.lat, area.center.lon],
     zoom: 13,
     attributionControl: false,
   });
@@ -138,10 +156,14 @@ onMounted(() => {
     const c = map?.getCenter();
     if (c) center.value = { lat: c.lat, lon: c.lng };
   });
+  fitAreaOnce();
   sync();
   // The card can be resized by the splitters; Leaflet only needs to re-measure, not redraw.
   if (typeof ResizeObserver !== "undefined") {
-    sizeObserver = new ResizeObserver(() => map?.invalidateSize());
+    sizeObserver = new ResizeObserver(() => {
+      map?.invalidateSize();
+      fitAreaOnce();
+    });
     sizeObserver.observe(container.value);
   }
 });
@@ -165,6 +187,7 @@ onBeforeUnmount(() => {
   sizeObserver = null;
   map?.remove();
   map = null;
+  fitted = false;
   tiles = null;
   markers.clear();
   drawn.clear();
