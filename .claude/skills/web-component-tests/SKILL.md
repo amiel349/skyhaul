@@ -16,7 +16,7 @@ web/src/views/FleetView.test.ts
 
 Applies to `components/`, `views/` and `App.vue`. Stores, composables and pure functions have their own `*.test.ts` next to them (plain jsdom, no browser).
 
-> **Note.** The structure below is in place. Many existing tests still query with `getByTestId`; switching them to role, label and text queries is the next PR. Tests written now should already follow the query rules.
+> **Status.** Both migrations are done: the structure below is in place, and the component tests query by role, label and text. `getByTestId` is left only for what has no role or text (the app shell, the Leaflet map's data attributes, and values that exist only as data attributes). New tests follow the query rules below.
 
 ## Shared infrastructure: `web/tests/`
 
