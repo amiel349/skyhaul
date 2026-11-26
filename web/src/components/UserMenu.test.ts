@@ -1,9 +1,9 @@
 import { createPinia } from "pinia";
+import { userFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../stores/auth";
-import { makeUser } from "../../tests/factories/user";
 import { THEME_KEY, useThemeStore } from "../theme/theme";
 import UserMenu from "./UserMenu.vue";
 
@@ -17,7 +17,7 @@ async function renderMenu(email = "a@skyhaul.dev") {
   await render(UserMenu, { global: { plugins: [pinia] } });
   const auth = useAuthStore(pinia);
   auth.token = "tok-1";
-  auth.user = makeUser({ email });
+  auth.user = userFaketory.build({ email });
   useThemeStore(pinia).init();
   return { auth };
 }

@@ -1,8 +1,8 @@
 import { createPinia, setActivePinia } from "pinia";
+import { droneFaketory } from "../../tests/faketories";
 import { http, HttpResponse } from "msw";
 import { nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeDrone } from "../../tests/factories/drone";
 import { server, url } from "../../tests/node-server";
 import { useFleetStore } from "./fleet";
 import { useSelectionStore } from "./selection";
@@ -45,7 +45,7 @@ describe("selection store", () => {
 
   it("opens a drone by id: loads an unknown one from the API, flags a 404", async () => {
     server.use(
-      http.get(url("/drones/d9"), () => HttpResponse.json(makeDrone({ id: "d9" }))),
+      http.get(url("/drones/d9"), () => HttpResponse.json(droneFaketory.build({ id: "d9" }))),
       http.get(url("/drones/nope"), () => new HttpResponse(null, { status: 404 })),
     );
     const selection = useSelectionStore();
@@ -62,7 +62,7 @@ describe("selection store", () => {
     const fleet = useFleetStore();
     const selection = useSelectionStore();
     const position = { lat: 1, lon: 2, altitude_m: 3, heading_deg: 0, ground_speed_mps: 1 };
-    fleet.drones.set("d1", { id: "d1", name: "d1", state: makeDrone({ id: "d1" }).state });
+    fleet.drones.set("d1", { id: "d1", name: "d1", state: droneFaketory.build({ id: "d1" }).state });
     fleet.drones.get("d1")!.state!.position = position;
     selection.select("d1");
 
@@ -79,7 +79,7 @@ describe("selection store", () => {
         await new Promise<void>((resolve) => (finishSlow = resolve));
         return new HttpResponse(null, { status: 404 });
       }),
-      http.get(url("/drones/fast"), () => HttpResponse.json(makeDrone({ id: "fast" }))),
+      http.get(url("/drones/fast"), () => HttpResponse.json(droneFaketory.build({ id: "fast" }))),
     );
     const selection = useSelectionStore();
 

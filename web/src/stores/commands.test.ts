@@ -1,8 +1,8 @@
 import { createPinia, setActivePinia } from "pinia";
+import { commandFaketory } from "../../tests/faketories";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Body } from "../../tests/api";
-import { makeCommand } from "../../tests/factories/command";
 import { fake } from "../../tests/fake-socket";
 import { loginOk, server, url } from "../../tests/node-server";
 import { useAuthStore } from "./auth";
@@ -16,7 +16,7 @@ beforeEach(() => {
   fake.reset();
 });
 
-const status = (id: string, over: Parameters<typeof makeCommand>[0] = {}) => makeCommand({ id, ...over });
+const status = (id: string, over: Parameters<typeof commandFaketory.build>[0] = {}) => commandFaketory.build({ id, ...over });
 
 describe("commands store", () => {
   it("merges command.updated by id: a late reply wins over TIMED_OUT, an older status never wins", () => {

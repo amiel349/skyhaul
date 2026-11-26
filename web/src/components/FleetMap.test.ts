@@ -1,22 +1,18 @@
 import L from "leaflet";
+import { droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
 import { createPinia } from "pinia";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-vue";
 import { describe, expect, it, vi } from "vitest";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
-import { makeDrone } from "../../tests/factories/drone";
-import { makeDroneStateEvent } from "../../tests/factories/drone-state-event";
-import { makeLiveState } from "../../tests/factories/live-state";
-import { worker } from "../../tests/worker";
-import { fakeDb, fakeEndpoints } from "./FleetMap.fakes";
+import { fakeDb } from "../../tests/fake-db";
 import FleetMap from "./FleetMap.vue";
 
 // Renders only FleetMap, in a real browser (real canvas, real ResizeObserver), inside a box with a size.
 // The fleet store is filled through the fake GET /drones.
-async function renderMap(...drones: ReturnType<typeof makeDrone>[]) {
-  fakeDb.add(...drones);
-  worker.use(...fakeEndpoints);
+async function renderMap(...drones: ReturnType<typeof droneFaketory.build>[]) {
+  fakeDb.drones.add(...drones);
   const pinia = createPinia();
   const view = await render(FleetMap, { global: { plugins: [pinia] } });
   // A grid box with a fixed size, so the map card stretches to fill it.
@@ -39,8 +35,8 @@ const at = (lat: number, lon: number) => ({ lat, lon, altitude_m: 42, heading_de
 describe("FleetMap", () => {
   it("draws a marker for each drone with a position, and none for one without", async () => {
     await renderMap(
-      makeDrone({ id: "d1", state: makeLiveState({ position: at(32.0123, 34.8123) }) }),
-      makeDrone({ id: "d2", state: null }),
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0123, 34.8123) }) }),
+      droneFaketory.build({ id: "d2", state: null }),
     );
 
     await expect.element(page.getByTestId("fleet-map")).toHaveAttribute("data-marker-count", "1");
@@ -50,7 +46,7 @@ describe("FleetMap", () => {
   });
 
   it("highlights the marker of the selected drone", async () => {
-    const { pinia } = await renderMap(makeDrone({ id: "d1" }));
+    const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
     await expect.element(page.getByTestId("fleet-marker-label-d1")).toHaveAttribute("data-selected", "false");
 
     useSelectionStore(pinia).select("d1");
@@ -59,13 +55,13 @@ describe("FleetMap", () => {
   });
 
   it("moves a marker on an event and marks a LOST drone with a text label", async () => {
-    const { pinia } = await renderMap(makeDrone({ id: "d1" }));
+    const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
     await expect.element(page.getByTestId("fleet-marker-label-d1")).toHaveAttribute("data-link", "UP");
 
     useFleetStore(pinia).applyState(
-      makeDroneStateEvent({
+      droneStateEventFaketory.build({
         drone_id: "d1",
-        state: makeLiveState({ link: "LOST", position: at(32.5, 34.9), ts: "2026-01-01T00:01:00.000Z" }),
+        state: liveStateFaketory.build({ link: "LOST", position: at(32.5, 34.9), ts: "2026-01-01T00:01:00.000Z" }),
       }),
     );
 
@@ -77,16 +73,16 @@ describe("FleetMap", () => {
 
   it("keeps the followed drone centred as it moves", async () => {
     const { pinia } = await renderMap(
-      makeDrone({ id: "d1", state: makeLiveState({ position: at(32.0, 34.8) }) }),
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0, 34.8) }) }),
     );
     const selection = useSelectionStore(pinia);
     selection.select("d1");
     selection.setFollow(true);
 
     useFleetStore(pinia).applyState(
-      makeDroneStateEvent({
+      droneStateEventFaketory.build({
         drone_id: "d1",
-        state: makeLiveState({ position: at(32.01, 34.81), ts: "2026-01-01T00:01:00.000Z" }),
+        state: liveStateFaketory.build({ position: at(32.01, 34.81), ts: "2026-01-01T00:01:00.000Z" }),
       }),
     );
 
@@ -98,7 +94,7 @@ describe("FleetMap", () => {
   });
 
   it("turns Follow off when the map is dragged", async () => {
-    const { pinia } = await renderMap(makeDrone({ id: "d1" }));
+    const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
     const selection = useSelectionStore(pinia);
     selection.select("d1");
     selection.setFollow(true);
@@ -122,8 +118,8 @@ describe("FleetMap", () => {
 
   it("does not re-centre or redraw the followed drone when another drone updates", async () => {
     const { pinia } = await renderMap(
-      makeDrone({ id: "d1", state: makeLiveState({ position: at(32.0, 34.8) }) }),
-      makeDrone({ id: "d2", state: makeLiveState({ position: at(32.1, 34.9) }) }),
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0, 34.8) }) }),
+      droneFaketory.build({ id: "d2", state: liveStateFaketory.build({ position: at(32.1, 34.9) }) }),
     );
     const selection = useSelectionStore(pinia);
     selection.select("d1");
@@ -135,9 +131,9 @@ describe("FleetMap", () => {
     pan.mockClear();
 
     useFleetStore(pinia).applyState(
-      makeDroneStateEvent({
+      droneStateEventFaketory.build({
         drone_id: "d2",
-        state: makeLiveState({ position: at(32.2, 34.95), ts: "2026-01-01T00:01:00.000Z" }),
+        state: liveStateFaketory.build({ position: at(32.2, 34.95), ts: "2026-01-01T00:01:00.000Z" }),
       }),
     );
 
@@ -149,7 +145,7 @@ describe("FleetMap", () => {
 
   it("renders a hostile drone name as text, never as HTML", async () => {
     const hostile = '<img src=x onerror="alert(1)">';
-    const { container } = await renderMap(makeDrone({ id: "d1", name: hostile }));
+    const { container } = await renderMap(droneFaketory.build({ id: "d1", name: hostile }));
 
     const label = page.getByTestId("fleet-marker-label-d1");
     await expect.element(label).toHaveTextContent(hostile);
@@ -158,7 +154,7 @@ describe("FleetMap", () => {
 
   it("loads no tiles under test", async () => {
     vi.stubEnv("VITE_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png");
-    const { container } = await renderMap(makeDrone({ id: "d1" }));
+    const { container } = await renderMap(droneFaketory.build({ id: "d1" }));
 
     await expect.element(page.getByTestId("fleet-map")).toHaveAttribute("data-tile-url", "");
     expect(container.querySelector(".leaflet-tile")).toBeNull();
@@ -166,7 +162,7 @@ describe("FleetMap", () => {
 
   it("re-measures itself when its box changes size", async () => {
     const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
-    const { container } = await renderMap(makeDrone({ id: "d1" }));
+    const { container } = await renderMap(droneFaketory.build({ id: "d1" }));
     await expect.element(page.getByTestId("fleet-map")).toBeInTheDocument();
     invalidate.mockClear();
 

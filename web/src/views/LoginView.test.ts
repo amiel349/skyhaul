@@ -5,12 +5,13 @@ import { describe, expect, it } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { worker } from "../../tests/worker";
-import { fakeDb, fakeEndpoints } from "./LoginView.fakes";
+import { fakeDb } from "../../tests/fake-db";
+import { authEndpoints } from "../../tests/fake-endpoints";
+import { userFaketory } from "../../tests/faketories";
 import LoginView from "./LoginView.vue";
 
 // Renders only LoginView; the page it sends you to after login is a stub route.
 async function renderLogin(path = "/login") {
-  worker.use(...fakeEndpoints);
   const pinia = createPinia();
   const router = createRouter({
     history: createMemoryHistory(),
@@ -42,7 +43,7 @@ describe("LoginView", () => {
   });
 
   it("shows wrong credentials as one message", async () => {
-    fakeDb.addUser("a@skyhaul.dev", "pw");
+    fakeDb.users.add(userFaketory.build({ email: "a@skyhaul.dev" }), "pw");
     await renderLogin();
 
     await signIn("a@skyhaul.dev", "bad");
@@ -51,7 +52,7 @@ describe("LoginView", () => {
   });
 
   it("shows the Retry-After hint on a 429", async () => {
-    fakeDb.rateLimitedS = 30;
+    worker.use(authEndpoints.respondWith(429, { retryAfter: 30 }));
     await renderLogin();
 
     await signIn("a@skyhaul.dev", "pw");
@@ -60,7 +61,7 @@ describe("LoginView", () => {
   });
 
   it("signs in, keeps the token in the store and goes to the page it came from", async () => {
-    fakeDb.addUser("a@skyhaul.dev", "pw");
+    fakeDb.users.add(userFaketory.build({ email: "a@skyhaul.dev" }), "pw");
     const { pinia, router } = await renderLogin("/login?next=/map");
 
     await signIn("a@skyhaul.dev", "pw");
