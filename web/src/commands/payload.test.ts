@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMMAND_TYPES, validatePayload } from "./payload";
+import { COMMAND_TYPES, parsePoint, validatePayload } from "./payload";
 
 describe("command payload validation", () => {
   it("never offers START_MISSION", () => {
@@ -20,5 +20,13 @@ describe("command payload validation", () => {
       payload: { lat: 32.1, lon: 34.8, altitude_m: 30 },
     });
     expect(validatePayload("ARM", {})).toEqual({ ok: true, payload: {} });
+  });
+
+  it("reads the GoTo point from lat and lon, and gives none while either is empty or out of range", () => {
+    expect(parsePoint({ lat: "32.1", lon: "34.8" })).toEqual({ lat: 32.1, lon: 34.8 });
+    expect(parsePoint({ lat: "32.1", lon: "" })).toBeNull();
+    expect(parsePoint({ lat: "91", lon: "34.8" })).toBeNull();
+    expect(parsePoint({ lat: "32.1", lon: "180" })).toBeNull();
+    expect(parsePoint({ lat: "x", lon: "34.8" })).toBeNull();
   });
 });

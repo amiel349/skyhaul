@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import type { DirectCommandType } from "../api/types";
-import { COMMAND_TYPES, FIELDS, validatePayload, type FieldErrors, type FieldName } from "../commands/payload";
+import { COMMAND_TYPES, FIELDS, parsePoint, validatePayload, type FieldErrors, type FieldName } from "../commands/payload";
 import { useCommandsStore } from "../stores/commands";
+import { useMapPickStore } from "../stores/mapPick";
 import AppButton from "./AppButton.vue";
 import AppSelect from "./AppSelect.vue";
 
 const props = defineProps<{ droneId: string; linkLost: boolean }>();
 
 const commands = useCommandsStore();
+const mapPick = useMapPickStore();
 const type = ref<DirectCommandType>("ARM");
 const typeOptions = COMMAND_TYPES.map((name) => ({ value: name, label: name }));
 const values = reactive<Partial<Record<FieldName, string>>>({});
@@ -23,7 +25,29 @@ watch([type, () => props.droneId], () => {
   for (const key of Object.keys(values)) delete values[key as FieldName];
   fieldErrors.value = {};
   error.value = null;
+  mapPick.reset(); // another command or drone: no pick mode and no target marker
 });
+
+// A click on the map fills the two fields (6 decimals); a longitude past 180 stays and fails the range check on send.
+watch(
+  () => mapPick.picked,
+  (point) => {
+    if (!point || type.value !== "GOTO") return;
+    values.lat = point.lat.toFixed(6);
+    values.lon = point.lon.toFixed(6);
+    delete fieldErrors.value.lat;
+    delete fieldErrors.value.lon;
+    mapPick.setTarget(parsePoint(values));
+  },
+);
+
+// The marker follows the typed numbers and is removed while they are not a valid point.
+watch(
+  () => [values.lat, values.lon],
+  () => mapPick.setTarget(type.value === "GOTO" ? parsePoint(values) : null),
+);
+
+onBeforeUnmount(() => mapPick.reset());
 
 function show(message: string): void {
   error.value = message;
@@ -41,7 +65,10 @@ async function submit(): Promise<void> {
   sending.value = true;
   try {
     const result = await commands.send(props.droneId, type.value, checked.payload);
-    if (result.ok) return;
+    if (result.ok) {
+      mapPick.setTarget(null); // sent: the marker goes; after a failure it stays so the dispatcher can retry
+      return;
+    }
     if (result.kind === "validation") {
       const known: FieldErrors = {};
       const rest: string[] = [];
@@ -87,31 +114,47 @@ async function submit(): Promise<void> {
         @update:model-value="type = $event as DirectCommandType"
       />
     </div>
-    <div
+    <template
       v-for="spec in fields"
       :key="`${type}-${spec.name}`"
-      class="row"
     >
-      <label :for="`command-field-${spec.name}`">{{ spec.label }} ({{ spec.unit }})</label>
-      <input
-        :id="`command-field-${spec.name}`"
-        v-model="values[spec.name]"
-        type="text"
-        inputmode="decimal"
-        autocomplete="off"
-        :required="spec.required"
-        :aria-invalid="fieldErrors[spec.name] ? 'true' : 'false'"
-        :aria-describedby="fieldErrors[spec.name] ? `command-field-error-${spec.name}` : undefined"
-        :data-testid="`command-field-${spec.name}`"
+      <div class="row">
+        <label :for="`command-field-${spec.name}`">{{ spec.label }} ({{ spec.unit }})</label>
+        <input
+          :id="`command-field-${spec.name}`"
+          v-model="values[spec.name]"
+          type="text"
+          inputmode="decimal"
+          autocomplete="off"
+          :required="spec.required"
+          :aria-invalid="fieldErrors[spec.name] ? 'true' : 'false'"
+          :aria-describedby="fieldErrors[spec.name] ? `command-field-error-${spec.name}` : undefined"
+          :data-testid="`command-field-${spec.name}`"
+        >
+        <span
+          v-if="fieldErrors[spec.name]"
+          :id="`command-field-error-${spec.name}`"
+          class="err"
+          role="alert"
+          :data-testid="`command-field-error-${spec.name}`"
+        >{{ fieldErrors[spec.name] }}</span>
+      </div>
+      <div
+        v-if="spec.name === 'lon'"
+        class="row"
       >
-      <span
-        v-if="fieldErrors[spec.name]"
-        :id="`command-field-error-${spec.name}`"
-        class="err"
-        role="alert"
-        :data-testid="`command-field-error-${spec.name}`"
-      >{{ fieldErrors[spec.name] }}</span>
-    </div>
+        <AppButton
+          size="sm"
+          class="pick"
+          :variant="mapPick.active ? 'primary' : 'secondary'"
+          :aria-pressed="mapPick.active ? 'true' : 'false'"
+          data-testid="command-pick-on-map"
+          @click="mapPick.toggle()"
+        >
+          Pick on map
+        </AppButton>
+      </div>
+    </template>
     <p
       v-if="error"
       class="err"
@@ -177,6 +220,9 @@ input[aria-invalid="true"] {
   border: 1px solid var(--warn);
   border-radius: 6px;
   color: var(--warn);
+}
+.pick {
+  justify-self: start;
 }
 .send {
   align-self: flex-start;
