@@ -3,7 +3,7 @@
 Applies to `tests/**`, `**/tests/**`, `web/**/*.spec.ts` and `web/**/*.test.ts`. The test infrastructure is the centerpiece of this project; review it with the same rigor as product code. See ADR 0004.
 
 ## The pyramid
-- Each behavior is proven at the lowest layer that can prove it: unit, then contract, integration, API E2E, and UI E2E last.
+- Each behavior is proven at the lowest layer that can prove it: unit, then contract, integration, API E2E, and UI E2E last. The `choosing-tests` skill has the decision order; a test at a higher layer than needed, or the same rule proven at several layers, is should-fix.
 - A new UI E2E test needs a reason it cannot live lower. UI E2E covers critical dispatcher journeys only.
 - Every acceptance criterion maps to at least one test, and the test name says which behavior it proves.
 
