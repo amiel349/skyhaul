@@ -188,6 +188,16 @@ describe("FleetMap", () => {
     await expect.element(page.getByText("No live data yet")).not.toBeInTheDocument();
   });
 
+  it("shows no notice while any drone has a position, even if another has none yet", async () => {
+    await renderMap(
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0123, 34.8123) }) }),
+      droneFaketory.build({ id: "d2", state: null }),
+    );
+
+    await expect.element(fleetMap()).toHaveAttribute("data-marker-count", "1");
+    await expect.element(page.getByText("No live data yet")).not.toBeInTheDocument();
+  });
+
   it("leaves out the simulator hint in a production build", async () => {
     vi.stubEnv("DEV", false);
 
