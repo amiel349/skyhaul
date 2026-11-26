@@ -1,14 +1,14 @@
 import { createPinia, setActivePinia } from "pinia";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fake } from "../testing/fake-socket";
-import { loginOk, server, url } from "../testing/node-server";
+import { fake } from "../../tests/fake-socket";
+import { loginOk, server, url } from "../../tests/node-server";
 import { useAuthStore } from "./auth";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
 import { useSelectionStore } from "./selection";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => {
   setActivePinia(createPinia());

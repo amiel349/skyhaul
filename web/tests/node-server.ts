@@ -1,9 +1,9 @@
 // Fake API for the jsdom unit tests (stores): MSW in Node, typed from the generated API types.
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import type { Drone } from "../api/types";
+import type { Drone } from "../src/api/types";
 import type { Ok } from "./api";
-import { makeUser } from "./factories/user";
+import { userFaketory } from "./faketories";
 
 export const server = setupServer();
 export const url = (path: string): string => `http://localhost:3000/api/v1${path}`;
@@ -17,6 +17,6 @@ export const loginOk = http.post(url("/auth/login"), () =>
     access_token: "tok-1",
     token_type: "Bearer",
     expires_in: 900,
-    user: makeUser(),
+    user: userFaketory.build(),
   }),
 );

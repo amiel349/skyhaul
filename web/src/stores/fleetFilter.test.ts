@@ -1,18 +1,18 @@
 import { createPinia, setActivePinia } from "pinia";
+import { droneFaketory, liveStateFaketory } from "../../tests/faketories";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeLiveState } from "../testing/factories/live-state";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => setActivePinia(createPinia()));
 
 function fill() {
   const fleet = useFleetStore();
-  fleet.drones.set("gw0-d001", { id: "gw0-d001", name: "Alpha", state: makeLiveState({ link: "UP" }) });
-  fleet.drones.set("gw0-d002", { id: "gw0-d002", name: "Bravo", state: makeLiveState({ link: "LOST" }) });
-  fleet.drones.set("gw0-d003", { id: "gw0-d003", name: "Charlie", state: null });
+  fleet.drones.set("gw0-d001", droneFaketory.build({ id: "gw0-d001", name: "Alpha", state: liveStateFaketory.build({ link: "UP" }) }));
+  fleet.drones.set("gw0-d002", droneFaketory.build({ id: "gw0-d002", name: "Bravo", state: liveStateFaketory.build({ link: "LOST" }) }));
+  fleet.drones.set("gw0-d003", droneFaketory.build({ id: "gw0-d003", name: "Charlie", state: null }));
   return fleet;
 }
 

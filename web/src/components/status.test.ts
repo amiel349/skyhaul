@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeLiveState } from "../testing/factories/live-state";
+import { liveStateFaketory } from "../../tests/faketories";
 import { batteryView, linkChip } from "./status";
 
 describe("status views", () => {
@@ -9,6 +9,6 @@ describe("status views", () => {
     expect(batteryView(100)).toMatchObject({ width: 100, low: false, text: "100%" });
     expect(batteryView(140).width).toBe(100);
     expect(batteryView(null).text).toBe("No data");
-    expect(linkChip({ id: "d", name: "d", state: makeLiveState({ link: "LOST" }) }).text).toBe("LOST");
+    expect(linkChip({ id: "d", name: "d", state: liveStateFaketory.build({ link: "LOST" }) }).text).toBe("LOST");
   });
 });

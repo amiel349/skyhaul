@@ -1,28 +1,16 @@
-import { createPinia } from "pinia";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
-import { createMemoryHistory, createRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
-import { worker } from "../testing/worker";
-import { fakeDb, fakeEndpoints } from "./LoginView.fakes";
+import { renderComponent } from "../../tests/render";
+import { worker } from "../../tests/worker";
+import { fakeDb } from "../../tests/fake-db";
+import { authEndpoints } from "../../tests/fake-endpoints";
+import { userFaketory } from "../../tests/faketories";
 import LoginView from "./LoginView.vue";
 
-// Renders only LoginView; the page it sends you to after login is a stub route.
-async function renderLogin(path = "/login") {
-  worker.use(...fakeEndpoints);
-  const pinia = createPinia();
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: "/login", name: "login", component: LoginView },
-      { path: "/", name: "fleet", component: { template: "<p data-testid='fleet-stub'>Fleet</p>" } },
-      { path: "/map", name: "map", component: { template: "<p data-testid='map-stub'>Map</p>" } },
-    ],
-  });
-  await router.push(path);
-  await router.isReady();
-  await render(LoginView, { global: { plugins: [pinia, router] } });
+// Renders LoginView on the app's router (nobody is signed in, so /login is reachable).
+async function renderLogin(route = "/login") {
+  const { pinia, router } = await renderComponent(LoginView, { route });
   return { pinia, router };
 }
 
@@ -42,7 +30,7 @@ describe("LoginView", () => {
   });
 
   it("shows wrong credentials as one message", async () => {
-    fakeDb.addUser("a@skyhaul.dev", "pw");
+    fakeDb.users.add(userFaketory.build({ email: "a@skyhaul.dev" }), "pw");
     await renderLogin();
 
     await signIn("a@skyhaul.dev", "bad");
@@ -51,7 +39,7 @@ describe("LoginView", () => {
   });
 
   it("shows the Retry-After hint on a 429", async () => {
-    fakeDb.rateLimitedS = 30;
+    worker.use(authEndpoints.respondWith(429, { retryAfter: 30 }));
     await renderLogin();
 
     await signIn("a@skyhaul.dev", "pw");
@@ -60,12 +48,12 @@ describe("LoginView", () => {
   });
 
   it("signs in, keeps the token in the store and goes to the page it came from", async () => {
-    fakeDb.addUser("a@skyhaul.dev", "pw");
-    const { pinia, router } = await renderLogin("/login?next=/map");
+    fakeDb.users.add(userFaketory.build({ email: "a@skyhaul.dev" }), "pw");
+    const { pinia, router } = await renderLogin("/login?next=/drones/d1");
 
     await signIn("a@skyhaul.dev", "pw");
 
-    await expect.poll(() => router.currentRoute.value.name).toBe("map");
+    await expect.poll(() => router.currentRoute.value.name).toBe("drone");
     expect(useAuthStore(pinia).token).toBe("tok-1");
   });
 

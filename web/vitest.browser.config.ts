@@ -14,12 +14,12 @@ export default defineConfig({
     alias: { "@contracts": fileURLToPath(new URL("../contracts/ts", import.meta.url)) },
   },
   // mockServiceWorker.js (for the MSW worker) lives next to the test setup, not in the app's public dir.
-  publicDir: "src/testing/public",
+  publicDir: "tests/public",
   // Pre-bundle what the tests import so Vite does not discover it mid-run and reload the page.
   optimizeDeps: { include: ["openapi-fetch", "socket.io-client", "leaflet", "pinia", "vue-router"] },
   test: {
     include: ["src/{components,views}/[A-Z]*.test.ts", "src/App.test.ts"],
-    setupFiles: ["./src/testing/setup-browser.ts"],
+    setupFiles: ["./tests/setup-browser.ts"],
     browser: {
       enabled: true,
       headless: true,

@@ -1,49 +1,24 @@
-import { createPinia } from "pinia";
+import { droneFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAuthStore } from "../stores/auth";
-import { createMemoryHistory, createRouter } from "vue-router";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
-import { makeDrone } from "../testing/factories/drone";
-import { fake } from "../testing/fake-socket";
-import { worker } from "../testing/worker";
-import { fakeDb, fakeEndpoints } from "./FleetView.fakes";
+import { fake } from "../../tests/fake-socket";
+import { renderComponent } from "../../tests/render";
+import { worker } from "../../tests/worker";
+import { fakeDb } from "../../tests/fake-db";
+import { droneEndpoints } from "../../tests/fake-endpoints";
 import FleetView from "./FleetView.vue";
 
-vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
+vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
 
 beforeEach(() => fake.reset());
 
-// Renders only FleetView, signed in. The panels it lays out are stubs; the splitters are real.
-async function renderView(path = "/") {
-  worker.use(...fakeEndpoints);
-  const pinia = createPinia();
-  useAuthStore(pinia).token = "tok-1";
-  // The view's own two routes; it keeps the URL and the selection in step.
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: "/", name: "fleet", component: FleetView },
-      { path: "/drones/:id", name: "drone", component: FleetView },
-    ],
-  });
-  await router.push(path);
-  const stub = (name: string) => ({ template: `<div data-testid="${name}-stub" />` });
-  const view = await render(FleetView, {
-    global: {
-      plugins: [pinia, router],
-      stubs: {
-        ConnectionBadge: stub("connection-badge"),
-        UserMenu: stub("user-menu"),
-        FleetList: stub("fleet-list"),
-        FleetMap: stub("fleet-map"),
-        DronePanel: stub("drone-panel"),
-      },
-    },
-  });
-  return { pinia, view, router };
+// Renders FleetView signed in as a dispatcher, with its real children (list, map, panel, splitters).
+// It keeps the URL and the selection in step, so it runs on the app's router.
+async function renderView(route = "/") {
+  const view = await renderComponent(FleetView, { route, user: { role: "dispatcher" } });
+  return { pinia: view.pinia, view, router: view.router };
 }
 
 const bar = (id: string) => page.getByTestId(id);
@@ -51,7 +26,7 @@ const focus = (id: string) => (bar(id).element() as HTMLElement).focus();
 
 describe("FleetView", () => {
   it("loads the drones and opens the live socket on mount, and closes it on leaving", async () => {
-    fakeDb.add(makeDrone({ id: "d1" }), makeDrone({ id: "d2" }));
+    fakeDb.drones.add(droneFaketory.build({ id: "d1" }), droneFaketory.build({ id: "d2" }));
     const { pinia, view } = await renderView();
 
     await expect.poll(() => useFleetStore(pinia).list.length).toBe(2);
@@ -62,7 +37,7 @@ describe("FleetView", () => {
   });
 
   it("puts the selected drone in the URL", async () => {
-    fakeDb.add(makeDrone({ id: "d1" }));
+    fakeDb.drones.add(droneFaketory.build({ id: "d1" }));
     const { pinia, router } = await renderView();
     await expect.poll(() => useFleetStore(pinia).list.length).toBe(1);
 
@@ -72,7 +47,7 @@ describe("FleetView", () => {
   });
 
   it("selects the drone named in the URL, loading it by id when the list does not have it yet", async () => {
-    fakeDb.add(makeDrone({ id: "d1", name: "Alpha" }));
+    fakeDb.drones.add(droneFaketory.build({ id: "d1", name: "Alpha" }));
     const { pinia } = await renderView("/drones/d1");
 
     await expect.poll(() => useSelectionStore(pinia).selectedId).toBe("d1");
@@ -94,7 +69,7 @@ describe("FleetView", () => {
   });
 
   it("says so when the drones cannot be loaded", async () => {
-    fakeDb.failing = true;
+    worker.use(droneEndpoints.respondWith(500));
     await renderView();
 
     await expect.element(page.getByTestId("fleet-error")).toHaveTextContent("Could not load the drones");

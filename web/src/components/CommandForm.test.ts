@@ -1,16 +1,14 @@
-import { createPinia } from "pinia";
 import { page } from "vitest/browser";
-import { render } from "vitest-browser-vue";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
-import { worker } from "../testing/worker";
-import { fakeDb, fakeEndpoints } from "./CommandForm.fakes";
+import { worker } from "../../tests/worker";
+import { renderComponent } from "../../tests/render";
+import { fakeDb } from "../../tests/fake-db";
+import { commandEndpoints } from "../../tests/fake-endpoints";
 import CommandForm from "./CommandForm.vue";
 
 async function renderForm(linkLost = false) {
-  worker.use(...fakeEndpoints);
-  const pinia = createPinia();
-  await render(CommandForm, { props: { droneId: "d1", linkLost }, global: { plugins: [pinia] } });
+  const { pinia } = await renderComponent(CommandForm, { props: { droneId: "d1", linkLost } });
   return useCommandsStore(pinia);
 }
 
@@ -35,9 +33,9 @@ describe("CommandForm", () => {
     await field("altitude_m").fill("30");
     await send().click();
 
-    await expect.poll(() => fakeDb.requests.length).toBe(1);
-    expect(fakeDb.requests[0]?.droneId).toBe("d1");
-    expect(fakeDb.requests[0]?.body).toEqual({ type: "GOTO", payload: { lat: 32.1, lon: 34.8, altitude_m: 30 } });
+    await expect.poll(() => fakeDb.commands.requests.length).toBe(1);
+    expect(fakeDb.commands.requests[0]?.droneId).toBe("d1");
+    expect(fakeDb.commands.requests[0]?.body).toEqual({ type: "GOTO", payload: { lat: 32.1, lon: 34.8, altitude_m: 30 } });
   });
 
   it("adds a SENT row to the drone's command list on 202", async () => {
@@ -58,11 +56,16 @@ describe("CommandForm", () => {
     await field("altitude_m").fill("500");
     await send().click();
     await expect.element(page.getByTestId("command-field-error-altitude_m")).toMatchTextContent("Must be 5 to 120");
-    expect(fakeDb.requests).toHaveLength(0);
+    expect(fakeDb.commands.requests).toHaveLength(0);
   });
 
   it("shows the server's field errors next to the inputs on 422", async () => {
-    fakeDb.mode = "422";
+    worker.use(
+      commandEndpoints.respondWith(422, {
+        detail: "Invalid payload",
+        fields: { "payload.altitude_m": ["Too high for this drone"] },
+      }),
+    );
     await renderForm();
     await type().selectOptions("TAKEOFF");
     await field("altitude_m").fill("30");
@@ -74,7 +77,7 @@ describe("CommandForm", () => {
   });
 
   it("says Too many commands, wait, with the Retry-After seconds, on 429", async () => {
-    fakeDb.mode = "429";
+    worker.use(commandEndpoints.respondWith(429, { retryAfter: 12, detail: "Slow down" }));
     await renderForm();
 
     await send().click();
@@ -83,7 +86,7 @@ describe("CommandForm", () => {
   });
 
   it("shows an error and adds no row on 503 command_not_sent", async () => {
-    fakeDb.mode = "503";
+    worker.use(commandEndpoints.respondWith(503, { detail: "The broker did not confirm" }));
     const store = await renderForm();
 
     await send().click();
@@ -93,7 +96,7 @@ describe("CommandForm", () => {
   });
 
   it("shows the server detail on 409", async () => {
-    fakeDb.mode = "409";
+    worker.use(commandEndpoints.respondWith(409, { detail: "Drone is on a mission" }));
     await renderForm();
 
     await send().click();
@@ -109,9 +112,9 @@ describe("CommandForm", () => {
   });
 
   it("disables Send until the answer, and a retry reuses the Idempotency-Key", async () => {
-    fakeDb.mode = "503";
     let release = () => {};
-    fakeDb.gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    worker.use(commandEndpoints.respondWith(503, { detail: "The broker did not confirm", gate }));
     await renderForm();
 
     await send().click();
@@ -119,11 +122,11 @@ describe("CommandForm", () => {
     release();
     await expect.element(send()).toBeEnabled();
 
-    fakeDb.mode = "202";
+    worker.use(commandEndpoints.respondWith(202));
     await send().click();
 
-    await expect.poll(() => fakeDb.requests.length).toBe(2);
-    expect(fakeDb.requests[0]?.idempotencyKey).toBeTruthy();
-    expect(fakeDb.requests[1]?.idempotencyKey).toBe(fakeDb.requests[0]?.idempotencyKey);
+    await expect.poll(() => fakeDb.commands.requests.length).toBe(2);
+    expect(fakeDb.commands.requests[0]?.idempotencyKey).toBeTruthy();
+    expect(fakeDb.commands.requests[1]?.idempotencyKey).toBe(fakeDb.commands.requests[0]?.idempotencyKey);
   });
 });

@@ -1,7 +1,8 @@
 // Global hooks for component tests (Vitest browser project). No test data, no mount helper.
 import { createPinia, setActivePinia } from "pinia";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
-import "../styles/global.css";
+import "../src/styles/global.css";
+import { fakeEndpoints } from "./fake-endpoints";
 import { runResets } from "./reset";
 import { worker } from "./worker";
 
@@ -23,6 +24,10 @@ beforeAll(async () => {
 });
 afterAll(() => worker.stop());
 
+// Every domain's happy path is registered once, for every test. A request with no handler fails the test;
+// a test overrides only what it needs with `worker.use(...)`.
+beforeAll(() => worker.resetHandlers(...fakeEndpoints));
+
 beforeEach(() => {
   unhandled.length = 0;
   errors = [];
@@ -35,7 +40,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  worker.resetHandlers();
+  worker.resetHandlers(...fakeEndpoints);
   runResets();
   setActivePinia(createPinia());
   localStorage.clear();

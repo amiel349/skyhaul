@@ -16,7 +16,7 @@ web/src/views/FleetView.test.ts
 
 Applies to `components/`, `views/` and `App.vue`. Stores, composables and pure functions have their own `*.test.ts` next to them (plain jsdom, no browser).
 
-> **Status.** The shared infrastructure below is being moved to `web/tests/` in two PRs (infrastructure and fakes first, then the query migration). Until they land, it still lives in `web/src/testing/` and each data-backed component has a `<Name>.fakes.ts`. Tests written in the meantime should already follow the query, interaction and structure rules in this file.
+> **Note.** The structure below is in place. Many existing tests still query with `getByTestId`; switching them to role, label and text queries is the next PR. Tests written now should already follow the query rules.
 
 ## Shared infrastructure: `web/tests/`
 
