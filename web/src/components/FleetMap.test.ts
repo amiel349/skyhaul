@@ -114,10 +114,36 @@ describe("FleetMap", () => {
     mouse("mousedown", 200, 200, pane);
     mouse("mousemove", 230, 215, pane);
     mouse("mousemove", 260, 230, pane);
-    await new Promise((resolve) => setTimeout(resolve, 120)); // a pause before release: no inertia glide
+    await vi.waitFor(() => expect(selection.follow).toBe(false)); // Leaflet fired dragstart
     mouse("mouseup", 260, 230, pane);
 
-    await vi.waitFor(() => expect(selection.follow).toBe(false));
+    await settleCanvas();
+  });
+
+  it("does not re-centre or redraw the followed drone when another drone updates", async () => {
+    const { pinia } = await renderMap(
+      makeDrone({ id: "d1", state: makeLiveState({ position: at(32.0, 34.8) }) }),
+      makeDrone({ id: "d2", state: makeLiveState({ position: at(32.1, 34.9) }) }),
+    );
+    const selection = useSelectionStore(pinia);
+    selection.select("d1");
+    selection.setFollow(true);
+    const d1Label = page.getByTestId("fleet-marker-label-d1");
+    await expect.element(d1Label).toHaveAttribute("data-selected", "true");
+    const before = d1Label.element();
+    const pan = vi.spyOn(L.Map.prototype, "panTo");
+    pan.mockClear();
+
+    useFleetStore(pinia).applyState(
+      makeDroneStateEvent({
+        drone_id: "d2",
+        state: makeLiveState({ position: at(32.2, 34.95), ts: "2026-01-01T00:01:00.000Z" }),
+      }),
+    );
+
+    await expect.element(page.getByTestId("fleet-marker-label-d2")).toHaveAttribute("data-lat", "32.2");
+    expect(pan).not.toHaveBeenCalled();
+    expect(page.getByTestId("fleet-marker-label-d1").element()).toBe(before);
     await settleCanvas();
   });
 

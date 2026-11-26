@@ -20,5 +20,9 @@ export const useFleetFilterStore = defineStore("fleetFilter", () => {
   const query = ref("");
   const link = ref<LinkFilter>("ALL");
   const visible = computed(() => filterDrones(fleet.list, query.value, link.value));
-  return { query, link, visible };
+  function reset(): void {
+    query.value = "";
+    link.value = "ALL";
+  }
+  return { query, link, visible, reset };
 });

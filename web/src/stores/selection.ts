@@ -12,14 +12,14 @@ export const useSelectionStore = defineStore("selection", () => {
   const notice = ref<string | null>(null);
   /** The id from the URL that the API does not know (404). */
   const notFoundId = ref<string | null>(null);
-  let hadPosition = false;
+  /** The id `open` was last asked for; an older request that finishes later is ignored. */
+  let latestOpen: string | null = null;
 
   function select(id: string | null): void {
     if (id !== selectedId.value) follow.value = false;
     selectedId.value = id;
     notice.value = null;
     notFoundId.value = null;
-    hadPosition = !!(id && fleet.drones.get(id)?.state?.position);
   }
 
   function setFollow(on: boolean): void {
@@ -28,9 +28,11 @@ export const useSelectionStore = defineStore("selection", () => {
 
   /** Select a drone by id from the URL; load it first if the list does not have it yet. */
   async function open(id: string): Promise<void> {
+    latestOpen = id;
     if (selectedId.value === id) return;
     if (!fleet.drones.has(id)) {
       const result = await fleet.loadOne(id);
+      if (latestOpen !== id) return;
       if (result !== "ok") {
         select(null);
         if (result === "not_found") notFoundId.value = id;
@@ -41,22 +43,25 @@ export const useSelectionStore = defineStore("selection", () => {
     select(id);
   }
 
-  // A selected drone that is removed, or loses its position, is deselected.
+  /** Back to nothing selected (sign-out); also drops any open request still in flight. */
+  function reset(): void {
+    latestOpen = null;
+    select(null);
+    notice.value = null;
+  }
+
+  // A selected drone that is removed is deselected. One that only loses its position stays selected.
   watch(
     () => fleet.list,
     () => {
       if (!selectedId.value) return;
       const id = selectedId.value;
-      const drone = fleet.drones.get(id);
-      const has = !!drone?.state?.position;
-      if (!drone) {
+      if (!fleet.drones.has(id)) {
         select(null);
         notice.value = `Drone ${id} was removed`;
-      } else if (hadPosition && !has) {
-        select(null);
-      } else hadPosition = has;
+      }
     },
   );
 
-  return { selectedId, follow, notice, notFoundId, select, setFollow, open };
+  return { selectedId, follow, notice, notFoundId, select, setFollow, open, reset };
 });

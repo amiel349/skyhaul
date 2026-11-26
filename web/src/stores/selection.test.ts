@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { http, HttpResponse } from "msw";
+import { nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeDrone } from "../testing/factories/drone";
 import { server, url } from "../testing/node-server";
@@ -55,5 +56,39 @@ describe("selection store", () => {
     await selection.open("nope");
     expect(selection.selectedId).toBeNull();
     expect(selection.notFoundId).toBe("nope");
+  });
+
+  it("keeps a drone selected when it loses its position", async () => {
+    const fleet = useFleetStore();
+    const selection = useSelectionStore();
+    const position = { lat: 1, lon: 2, altitude_m: 3, heading_deg: 0, ground_speed_mps: 1 };
+    fleet.drones.set("d1", { id: "d1", name: "d1", state: makeDrone({ id: "d1" }).state });
+    fleet.drones.get("d1")!.state!.position = position;
+    selection.select("d1");
+
+    fleet.drones.set("d1", { id: "d1", name: "d1", state: { ...fleet.drones.get("d1")!.state!, position: null } });
+
+    await nextTick();
+    expect(selection.selectedId).toBe("d1");
+  });
+
+  it("ignores a slow answer for an id that is no longer the one asked for", async () => {
+    let finishSlow = () => {};
+    server.use(
+      http.get(url("/drones/slow"), async () => {
+        await new Promise<void>((resolve) => (finishSlow = resolve));
+        return new HttpResponse(null, { status: 404 });
+      }),
+      http.get(url("/drones/fast"), () => HttpResponse.json(makeDrone({ id: "fast" }))),
+    );
+    const selection = useSelectionStore();
+
+    const slow = selection.open("slow");
+    await selection.open("fast");
+    finishSlow();
+    await slow;
+
+    expect(selection.selectedId).toBe("fast");
+    expect(selection.notFoundId).toBeNull();
   });
 });

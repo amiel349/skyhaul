@@ -44,9 +44,15 @@ function labelNode(
   return span;
 }
 
-function sync(): void {
+/** What is drawn for each marker, so a change is applied only when something differs. */
+const drawn = new Map<string, string>();
+/** The followed position the map was last centred on; cleared when Follow is off. */
+let centredOn = "";
+
+function sync(force = false): void {
   if (!map) return;
   const seen = new Set<string>();
+  if (!(selection.follow && selection.selectedId)) centredOn = "";
   for (const drone of fleet.list) {
     const position = drone.state?.position;
     if (!position) continue; // not drawn until it has a position
@@ -54,17 +60,27 @@ function sync(): void {
     const selected = selection.selectedId === drone.id;
     const look = markerLook(drone, selected);
     const at = L.latLng(position.lat, position.lon);
+    const signature = `${position.lat}|${position.lon}|${look.label}|${look.lost}|${selected}`;
     const label = (): HTMLElement =>
       labelNode(drone.id, look.label, look.lost, position.lat, position.lon, selected);
     const existing = markers.get(drone.id);
     if (existing) {
-      existing.setLatLng(at);
-      existing.setStyle(look.path);
-      existing.setRadius(look.radius);
-      existing.setTooltipContent(label());
-      existing.getTooltip()?.getElement()?.classList.toggle("is-selected", selected);
-      if (selected) existing.bringToFront();
-      if (selected && selection.follow) map.panTo(at, { animate: false });
+      if (force || drawn.get(drone.id) !== signature) {
+        existing.setLatLng(at);
+        existing.setStyle(look.path);
+        existing.setRadius(look.radius);
+        existing.setTooltipContent(label());
+        existing.getTooltip()?.getElement()?.classList.toggle("is-selected", selected);
+        if (selected) existing.bringToFront();
+        drawn.set(drone.id, signature);
+      }
+      if (selected && selection.follow) {
+        const key = `${drone.id}|${position.lat}|${position.lon}`;
+        if (key !== centredOn) {
+          centredOn = key;
+          map.panTo(at, { animate: false });
+        }
+      }
     } else {
       const marker = L.circleMarker(at, { radius: look.radius, ...look.path }).addTo(map);
       marker.bindTooltip(label(), {
@@ -75,12 +91,14 @@ function sync(): void {
       });
       marker.on("click", () => selection.select(drone.id));
       markers.set(drone.id, marker);
+      drawn.set(drone.id, signature);
     }
   }
   for (const [id, marker] of markers) {
     if (!seen.has(id)) {
       marker.remove();
       markers.delete(id);
+      drawn.delete(id);
     }
   }
   markerCount.value = markers.size;
@@ -124,15 +142,15 @@ onMounted(() => {
 });
 
 // One pass over the drones per change; only moved markers are touched, the map is not rebuilt.
-watch(() => fleet.list, sync, { flush: "post" });
-watch(() => selection.selectedId, sync, { flush: "post" });
-watch(() => selection.follow, sync, { flush: "post" }); // turning Follow on centres at once
+watch(() => fleet.list, () => sync(), { flush: "post" });
+watch(() => selection.selectedId, () => sync(), { flush: "post" });
+watch(() => selection.follow, () => sync(), { flush: "post" }); // turning Follow on centres at once
 // A theme switch changes the CSS tokens; the canvas has to be told to redraw with the new values.
 watch(
   () => theme.resolved,
   () => {
     applyTiles();
-    sync();
+    sync(true);
   },
   { flush: "post" },
 );
@@ -144,6 +162,7 @@ onBeforeUnmount(() => {
   map = null;
   tiles = null;
   markers.clear();
+  drawn.clear();
 });
 </script>
 
