@@ -5,6 +5,8 @@ import { fake } from "../testing/fake-socket";
 import { loginOk, server, url } from "../testing/node-server";
 import { useAuthStore } from "./auth";
 import { useFleetStore } from "./fleet";
+import { useFleetFilterStore } from "./fleetFilter";
+import { useSelectionStore } from "./selection";
 
 vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"));
 
@@ -72,5 +74,20 @@ describe("auth store", () => {
     expect(auth.user).toBeNull();
     expect(auth.notice).toBeNull();
     expect(fake.open).toBe(false);
+  });
+
+  it("logout clears the selection, the not-found id and the list filter", async () => {
+    const auth = await signedIn();
+    const selection = useSelectionStore();
+    const filter = useFleetFilterStore();
+    selection.notFoundId = "nope";
+    filter.query = "abc";
+    filter.link = "LOST";
+
+    auth.logout();
+
+    expect(selection.notFoundId).toBeNull();
+    expect(filter.query).toBe("");
+    expect(filter.link).toBe("ALL");
   });
 });

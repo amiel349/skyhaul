@@ -5,6 +5,8 @@ import type { User } from "../api/types";
 import { closeFleetSocket } from "../realtime/socket";
 import { useConnectionStore } from "./connection";
 import { useFleetStore } from "./fleet";
+import { useFleetFilterStore } from "./fleetFilter";
+import { useSelectionStore } from "./selection";
 
 export type LoginResult =
   | { ok: true }
@@ -45,6 +47,8 @@ export const useAuthStore = defineStore("auth", () => {
     user.value = null;
     notice.value = reason ?? null;
     useFleetStore().clear();
+    useSelectionStore().reset();
+    useFleetFilterStore().reset();
     useConnectionStore().set("offline");
   }
 

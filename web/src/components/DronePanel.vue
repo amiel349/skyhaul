@@ -3,15 +3,17 @@ import { computed } from "vue";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import BatteryBar from "./BatteryBar.vue";
+import { formatDuration, formatPoint, formatTimestamp, NO_DATA } from "./format";
 import StatusChip from "./StatusChip.vue";
 import { linkChip } from "./status";
 
 const fleet = useFleetStore();
 const selection = useSelectionStore();
 const drone = computed(() => (selection.selectedId ? fleet.drones.get(selection.selectedId) : undefined));
-const position = computed(() => drone.value?.state?.position ?? null);
-
-const NO_DATA = "No data";
+const state = computed(() => drone.value?.state ?? null);
+const position = computed(() => state.value?.position ?? null);
+const stale = computed(() => state.value?.link === "LOST");
+const armed = computed(() => (state.value?.armed == null ? NO_DATA : state.value.armed ? "Yes" : "No"));
 </script>
 
 <template>
@@ -25,7 +27,23 @@ const NO_DATA = "No data";
         Drone
       </h2>
       <p
-        v-if="!drone"
+        v-if="!drone && selection.notFoundId"
+        class="empty"
+        role="alert"
+        data-testid="drone-not-found"
+      >
+        Drone not found
+      </p>
+      <p
+        v-else-if="!drone && selection.notice"
+        class="empty"
+        role="alert"
+        data-testid="drone-panel-notice"
+      >
+        {{ selection.notice }}
+      </p>
+      <p
+        v-else-if="!drone"
         class="empty"
         data-testid="drone-panel-empty"
       >
@@ -42,17 +60,86 @@ const NO_DATA = "No data";
             data-testid="drone-panel-id"
           >{{ drone.id }}</span>
         </div>
-        <dl class="facts">
+        <label class="follow">
+          <input
+            type="checkbox"
+            :checked="selection.follow"
+            data-testid="drone-panel-follow"
+            @change="selection.setFollow(($event.target as HTMLInputElement).checked)"
+          >
+          Follow on map
+        </label>
+        <p
+          v-if="stale"
+          class="stale"
+          role="status"
+          data-testid="drone-panel-stale"
+        >
+          Link lost. Last seen
+          <span
+            class="mono"
+            data-testid="drone-panel-last-seen"
+          >{{ formatTimestamp(state?.last_seen_at) }}</span>.
+          Values below may be out of date.
+        </p>
+        <dl
+          class="facts"
+          :class="{ stale }"
+          :data-stale="stale"
+          data-testid="drone-panel-facts"
+        >
+          <div>
+            <dt>Flight state</dt>
+            <dd data-testid="drone-panel-flight-state">
+              {{ state?.flight_state ?? NO_DATA }}
+            </dd>
+          </div>
+          <div>
+            <dt>Armed</dt>
+            <dd data-testid="drone-panel-armed">
+              {{ armed }}
+            </dd>
+          </div>
           <div>
             <dt>Battery</dt>
-            <dd data-testid="drone-panel-battery">
-              <BatteryBar :pct="drone.state?.battery_pct" />
+            <dd>
+              <BatteryBar
+                :pct="state?.battery_pct"
+                testid="drone-panel-battery"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>Remaining</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-remaining"
+            >
+              {{ formatDuration(state?.est_remaining_s) }}
             </dd>
           </div>
           <div>
             <dt>Link</dt>
             <dd data-testid="drone-panel-link">
               <StatusChip v-bind="linkChip(drone)" />
+            </dd>
+          </div>
+          <div>
+            <dt>Last heartbeat</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-heartbeat"
+            >
+              {{ formatTimestamp(state?.last_heartbeat_at) }}
+            </dd>
+          </div>
+          <div>
+            <dt>Position</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-position"
+            >
+              {{ formatPoint(position) }}
             </dd>
           </div>
           <div>
@@ -65,12 +152,39 @@ const NO_DATA = "No data";
             </dd>
           </div>
           <div>
-            <dt>Position</dt>
+            <dt>Heading</dt>
             <dd
               class="mono"
-              data-testid="drone-panel-position"
+              data-testid="drone-panel-heading"
             >
-              {{ position ? `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}` : NO_DATA }}
+              {{ position ? `${position.heading_deg}°` : NO_DATA }}
+            </dd>
+          </div>
+          <div>
+            <dt>Speed</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-speed"
+            >
+              {{ position ? `${position.ground_speed_mps} m/s` : NO_DATA }}
+            </dd>
+          </div>
+          <div>
+            <dt>Target</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-target"
+            >
+              {{ formatPoint(state?.target) }}
+            </dd>
+          </div>
+          <div>
+            <dt>Mission</dt>
+            <dd
+              class="mono"
+              data-testid="drone-panel-mission"
+            >
+              {{ state?.mission_id ?? NO_DATA }}
             </dd>
           </div>
         </dl>
@@ -180,6 +294,23 @@ dd {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.follow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.stale {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--crit);
+  border-radius: 6px;
+  color: var(--crit);
+}
+.facts.stale dd {
+  opacity: 0.6;
+  font-style: italic;
 }
 .btns {
   display: flex;

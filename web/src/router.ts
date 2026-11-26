@@ -9,6 +9,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     history,
     routes: [
       { path: "/", name: "fleet", component: FleetView },
+      // Same component as "/": the page (and its socket) stays mounted while the selection moves.
+      { path: "/drones/:id", name: "drone", component: FleetView },
       { path: "/login", name: "login", component: LoginView, meta: { public: true } },
       { path: "/:rest(.*)*", redirect: "/" },
     ],

@@ -21,7 +21,8 @@ function stamp(state: DroneLiveState | null): number {
 export const useFleetStore = defineStore("fleet", () => {
   const drones = shallowReactive(new Map<string, FleetDrone>());
   const loaded = shallowReactive({ done: false, failed: false });
-  const list = computed(() => [...drones.values()]);
+  // Sorted by id, so a state change or a new drone never makes the list order jump.
+  const list = computed(() => [...drones.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
   let hasConnected = false;
 
   /** Keep a state only if it is not older than the stored one (events may arrive out of order). */
@@ -43,6 +44,19 @@ export const useFleetStore = defineStore("fleet", () => {
       if (data && current) drones.set(id, { ...current, name: data.name });
     } catch {
       // The marker already shows the id; a missing name is not worth an error.
+    }
+  }
+
+  /** Load one drone that is not in the list yet (a deep link). */
+  async function loadOne(id: string): Promise<"ok" | "not_found" | "error"> {
+    try {
+      const { data, response } = await api.GET("/drones/{drone_id}", { params: { path: { drone_id: id } } });
+      if (!data) return response.status === 404 ? "not_found" : "error";
+      const kept = drones.get(id)?.state ?? null;
+      drones.set(id, { id: data.id, name: data.name, state: stamp(kept) > stamp(data.state) ? kept : data.state });
+      return "ok";
+    } catch {
+      return "error";
     }
   }
 
@@ -105,5 +119,5 @@ export const useFleetStore = defineStore("fleet", () => {
     hasConnected = false;
   }
 
-  return { drones, list, loaded, applyState, loadAll, startRealtime, stopRealtime, clear };
+  return { drones, list, loaded, applyState, loadAll, loadOne, startRealtime, stopRealtime, clear };
 });

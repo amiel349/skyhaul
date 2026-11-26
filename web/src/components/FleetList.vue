@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { useFleetStore } from "../stores/fleet";
+import { useFleetFilterStore, type LinkFilter } from "../stores/fleetFilter";
 import { useSelectionStore } from "../stores/selection";
 import BatteryBar from "./BatteryBar.vue";
+import { NO_DATA } from "./format";
 import StatusChip from "./StatusChip.vue";
 import { linkChip } from "./status";
 
 const fleet = useFleetStore();
+const filter = useFleetFilterStore();
 const selection = useSelectionStore();
+const LINKS: LinkFilter[] = ["ALL", "UP", "LOST"];
 </script>
 
 <template>
@@ -15,14 +19,45 @@ const selection = useSelectionStore();
     aria-labelledby="fleet-heading"
   >
     <h2 id="fleet-heading">
-      Fleet <small data-testid="fleet-count">{{ fleet.list.length }}</small>
+      Fleet <small data-testid="fleet-count">{{ filter.visible.length }}</small>
     </h2>
+    <div class="filters">
+      <input
+        v-model="filter.query"
+        type="search"
+        class="search"
+        placeholder="Search name or id"
+        aria-label="Search drones by name or id"
+        data-testid="fleet-search"
+      >
+      <select
+        v-model="filter.link"
+        class="select"
+        aria-label="Filter by link"
+        data-testid="fleet-filter-link"
+      >
+        <option
+          v-for="option in LINKS"
+          :key="option"
+          :value="option"
+        >
+          {{ option === "ALL" ? "All links" : option }}
+        </option>
+      </select>
+    </div>
+    <p
+      v-if="fleet.list.length > 0 && filter.visible.length === 0"
+      class="none"
+      data-testid="fleet-no-match"
+    >
+      No drones match
+    </p>
     <ul
       class="fleet"
       data-testid="fleet-list"
     >
       <li
-        v-for="drone in fleet.list"
+        v-for="drone in filter.visible"
         :key="drone.id"
       >
         <button
@@ -46,6 +81,12 @@ const selection = useSelectionStore();
               class="mono"
               :data-testid="`fleet-row-id-${drone.id}`"
             >{{ drone.id }}</span>
+            <span
+              class="state"
+              :data-testid="`fleet-row-state-${drone.id}`"
+            >{{ drone.state?.flight_state ?? NO_DATA }}</span>
+          </span>
+          <span class="sub">
             <BatteryBar
               :pct="drone.state?.battery_pct"
               :testid="`fleet-row-battery-${drone.id}`"
@@ -77,6 +118,33 @@ h2 {
 h2 small {
   font-weight: 400;
   letter-spacing: 0;
+}
+.filters {
+  display: flex;
+  gap: 6px;
+  padding: 8px 6px 2px;
+}
+.search,
+.select {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  min-width: 0;
+}
+.search {
+  flex: 1;
+}
+.none {
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--muted);
+}
+.state {
+  font-size: 11px;
+  letter-spacing: 0.04em;
 }
 .fleet {
   list-style: none;

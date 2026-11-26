@@ -9,9 +9,10 @@ const view = computed(() => batteryView(props.pct));
 <template>
   <span
     class="battery"
-    :class="{ low: view.low }"
+    :class="{ low: view.low, critical: view.critical }"
     :data-testid="testid"
     :data-low="view.low"
+    :data-critical="view.critical"
   >
     <span
       class="bar"
@@ -42,11 +43,17 @@ const view = computed(() => batteryView(props.pct));
   background: var(--ok);
 }
 .low .bar i {
-  background: repeating-linear-gradient(135deg, var(--crit) 0 4px, transparent 4px 6px);
+  background: repeating-linear-gradient(135deg, var(--warn) 0 4px, transparent 4px 6px);
 }
 .low .text {
-  color: var(--crit);
+  color: var(--warn);
   font-weight: 600;
+}
+.critical .bar i {
+  background: repeating-linear-gradient(135deg, var(--crit) 0 4px, transparent 4px 6px);
+}
+.critical .text {
+  color: var(--crit);
 }
 .text {
   font-family: var(--font-mono);

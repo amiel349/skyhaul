@@ -1,4 +1,5 @@
-// Fake db and endpoint for this view only: the drones it loads on mount through GET /drones.
+// Fake db and endpoints for this view only: the drones it loads on mount through GET /drones,
+// and one drone by id for a deep link.
 import { http, HttpResponse } from "msw";
 import type { Drone } from "../api/types";
 import { apiUrl, type Ok } from "../testing/api";
@@ -22,5 +23,10 @@ export const fakeEndpoints = [
   http.get(apiUrl("/drones"), () => {
     if (fakeDb.failing) return new HttpResponse(null, { status: 500 });
     return HttpResponse.json<Ok<"/drones", "get">>({ items: [...fakeDb.drones.values()], next_cursor: null });
+  }),
+  http.get(apiUrl("/drones/:id"), ({ params }) => {
+    const drone = fakeDb.drones.get(String(params.id));
+    if (!drone) return new HttpResponse(null, { status: 404 });
+    return HttpResponse.json<Ok<"/drones/{drone_id}", "get">>(drone);
   }),
 ];
