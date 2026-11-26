@@ -35,9 +35,12 @@ Applies to `web/**`.
 - Inputs have labels, buttons have accessible names, focus is visible, and controls work with the keyboard.
 - Status is not shown by color alone; it also has text or an icon (battery low, link lost).
 
-## Tests (Vitest, Vue Testing Library, MSW)
-- Test behavior the user sees: render, interact, assert on text and roles. No assertions on internal component state.
-- Network is mocked with MSW at the HTTP layer, not by stubbing the API client module.
+## Tests (Vitest browser mode, MSW)
+Full rules: the `web-component-tests` skill.
+- Test behavior the user sees: render, interact, assert on roles, labels and text. No assertions on internal component state (`wrapper.vm`, refs, methods). A spy on a third-party library (Leaflet) is the only exception.
+- Every new or changed `.vue` file has a sibling test file with the same name that tests that component with its real children (`PanelSplitter.vue` and `PanelSplitter.test.ts`). A component without one is should-fix.
+- Queries follow the priority order: role or label, then placeholder, then text, then `getByTestId` as a last resort. Queries by CSS class or tag, or a `getByTestId` where a role or label exists, are should-fix.
+- Interactions use `userEvent` from `vitest/browser`. Timers use fake timers, never real sleeps.
+- Data comes from faketories, the fake db and fake endpoints in `web/tests/`, typed from the generated API types. A raw mock payload in a test, a mocked `fetch` or API client, or a stub of a child component (outside a heavy third-party part, with a comment) is should-fix.
+- Components are rendered through the thin `renderComponent` helper. A helper that seeds data or stubs children is should-fix.
 - Stores are tested for their actions, including rollback paths.
-- Every new or changed `.vue` file has a sibling test file with the same name that renders only that component (`PanelSplitter.vue` and `PanelSplitter.test.ts`). A component without one is should-fix; see the `web-component-tests` skill.
-- Fake data and fake endpoints are per component (`Foo.fakes.ts`) and typed from the generated API types. An import of another component's fakes, a global fake db, or a shared mount helper is should-fix.
