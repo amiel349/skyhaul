@@ -21,7 +21,7 @@ const SEVERITIES: SeverityFilter[] = ["ALL", "CRITICAL", "WARNING", "INFO"];
 const TONE: Record<AlertSeverity, Tone> = { CRITICAL: "crit", WARNING: "warn", INFO: "neutral" };
 
 // Viewers see alerts but cannot acknowledge (the server refuses it too; full role work is issue #44).
-const canAck = computed(() => auth.user?.role !== "viewer");
+const canAck = computed(() => auth.user !== null && auth.user.role !== "viewer");
 
 const droneName = (id: string): string => fleet.drones.get(id)?.name ?? id;
 // Every drone that is known or has an alert, so an alert for an unknown drone can still be filtered.
