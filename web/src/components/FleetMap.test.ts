@@ -1,6 +1,6 @@
 import L from "leaflet";
 import { droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import area from "../../../contracts/geo/demo-area.v1.json";
 import { useFleetStore } from "../stores/fleet";
@@ -173,7 +173,7 @@ describe("FleetMap", () => {
     );
 
     // The box gets its size after the mount; the map fits the area once it has one.
-    await vi.waitFor(() => expect(fit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(fit).toHaveBeenCalled());
     const centre = (name: string) => () => Number(fleetMap().element().getAttribute(name));
     await expect.poll(centre("data-center-lat")).toBeCloseTo(area.center.lat, 2);
     await expect.poll(centre("data-center-lon")).toBeCloseTo(area.center.lon, 2);
@@ -181,7 +181,9 @@ describe("FleetMap", () => {
     expect(centre("data-center-lat")()).toBeLessThan(area.bounds.lat_max);
     expect(centre("data-center-lon")()).toBeGreaterThan(area.bounds.lon_min);
     expect(centre("data-center-lon")()).toBeLessThan(area.bounds.lon_max);
-    expect(fit).toHaveBeenCalledTimes(1);
+    await frame();
+    await frame();
+    const fitsBefore = fit.mock.calls.length;
 
     useFleetStore(pinia).applyState(
       droneStateEventFaketory.build({
@@ -191,7 +193,24 @@ describe("FleetMap", () => {
     );
     await expect.element(marker("Drone d1")).toHaveAttribute("data-lat", "32.06");
 
-    expect(fit).toHaveBeenCalledTimes(1);
+    expect(fit.mock.calls.length).toBe(fitsBefore);
+    await settleCanvas();
+  });
+
+  it("keeps fitting the area while the box settles, so a half-laid-out first size does not stick", async () => {
+    const { container } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
+    container.style.width = "260px";
+    container.style.height = "160px";
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0);
+    await frame();
+    await frame();
+    const small = Number(fleetMap().element().getAttribute("data-zoom"));
+
+    container.style.width = "900px";
+    container.style.height = "600px";
+
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(small);
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-center-lon"))).toBeCloseTo(area.center.lon, 2);
     await settleCanvas();
   });
 
@@ -206,17 +225,21 @@ describe("FleetMap", () => {
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
-  it("keeps the view the user chose when the box is resized after the first fit", async () => {
+  it("stops fitting the area once the user has taken over the map", async () => {
     const fit = vi.spyOn(L.Map.prototype, "fitBounds");
     const { container } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
-    await vi.waitFor(() => expect(fit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(fit).toHaveBeenCalled());
+    await frame();
+    await frame();
+    await userEvent.click(page.getByRole("button", { name: "Zoom in" })); // a hand on the map
+    const fitsBefore = fit.mock.calls.length;
     const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
     invalidate.mockClear();
 
     container.style.width = "450px";
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled()); // the resize was seen
 
-    expect(fit).toHaveBeenCalledTimes(1); // and did not snap the map back to the area
+    expect(fit.mock.calls.length).toBe(fitsBefore); // and did not snap the view back to the area
     await settleCanvas();
   });
 

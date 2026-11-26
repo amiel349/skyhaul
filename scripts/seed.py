@@ -18,6 +18,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -204,6 +205,30 @@ def registered_homes(token: str) -> dict[str, dict[str, float]]:
     return {d["id"]: d["home"] for d in body.get("items", []) if d.get("home")}
 
 
+def drones_with_state(items: list[dict[str, Any]]) -> set[str]:
+    """The ids of the fleet drones that already have a live state (a flight state)."""
+    return {d["id"] for d in items if (d.get("state") or {}).get("flight_state")}
+
+
+def wait_for_live_state(ids: list[str], token: str, timeout_s: float = 30.0) -> set[str]:
+    """Wait until the API has a live state for each drone, and return the ids that have one.
+
+    A mission launch sends ARM only when the API sees the drone LANDED. Right after a spawn there
+    is no telemetry yet, so launching at once sends START_MISSION without ARM and the simulator
+    refuses it ("neither armed nor airborne"). The first heartbeat arrives within a second or two.
+    """
+    wanted = set(ids)
+    deadline = time.monotonic() + timeout_s
+    ready: set[str] = set()
+    while True:
+        status, body = api("GET", "/drones", None, token)
+        if status == 200:
+            ready = drones_with_state(body.get("items", [])) & wanted
+        if ready == wanted or time.monotonic() >= deadline:
+            return ready
+        time.sleep(1.0)
+
+
 def spawn(home: dict[str, float]) -> str:
     """Spawn one drone at `home`; every drone's geofence is centred on its own home."""
     body = {"namespace": NAMESPACE, "count": 1, "home": home}
@@ -248,7 +273,16 @@ def main() -> None:
             "Hint: some registered drones have a home outside the Tel Aviv area; "
             "`make down-volumes` then `make up` re-registers them inside it."
         )
-    start_patrols(drones, homes, token)
+    ids = [d["drone_id"] for d in drones]
+    print("Waiting for the drones' first heartbeat...")
+    ready = wait_for_live_state(ids, token)
+    waiting = [i for i in ids if i not in ready]
+    if waiting:
+        print(
+            f"seed: no live state yet for {', '.join(waiting)} (is the ingestor running?). "
+            "Skipping their patrols: run `make seed` again in a moment."
+        )
+    start_patrols([d for d in drones if d["drone_id"] in ready], homes, token)
     print(f"Sign in at the UI as {email}.")
 
 

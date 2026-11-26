@@ -35,3 +35,14 @@ def test_random_homes_relax_the_separation_instead_of_failing() -> None:
 
     assert len(homes) == 30
     assert all(seed.in_area(home) for home in homes)
+
+
+def test_only_drones_with_a_live_state_are_ready_for_a_mission() -> None:
+    items = [
+        {"id": "d1", "state": {"flight_state": "LANDED"}},
+        {"id": "d2", "state": None},
+        {"id": "d3", "state": {"flight_state": None}},
+        {"id": "d4"},
+    ]
+
+    assert seed.drones_with_state(items) == {"d1"}

@@ -19,6 +19,7 @@ const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
 const center = ref({ ...area.center });
+const zoom = ref(0);
 // Drones are registered but none has reported a position: the map is empty for a reason worth saying.
 const noLiveData = computed(
   () => fleet.loaded.done && fleet.list.length > 0 && fleet.list.every((drone) => !drone.state?.position),
@@ -30,15 +31,22 @@ let map: L.Map | null = null;
 let tiles: L.TileLayer | null = null;
 let sizeObserver: ResizeObserver | null = null;
 const markers = new Map<string, L.CircleMarker>();
-/** The map opens on the demo area once per mount, as soon as its box has a size. */
-let fitted = false;
+/**
+ * The map opens on the demo area and keeps fitting it while its box settles (fonts, saved panel
+ * sizes, the window) until the dispatcher takes over: a drag, a zoom, a click or Follow. Fitting only
+ * once would fit a half-laid-out box and leave a view that is far too wide.
+ */
+let userMoved = false;
 
-function fitAreaOnce(): void {
-  if (!map || fitted) return;
+function takeOver(): void {
+  userMoved = true;
+}
+
+function fitArea(): void {
+  if (!map || userMoved) return;
   map.invalidateSize();
   const size = map.getSize();
   if (size.x === 0 || size.y === 0) return; // not laid out yet; the resize observer calls again
-  fitted = true;
   map.fitBounds(
     [
       [area.bounds.lat_min, area.bounds.lon_min],
@@ -101,6 +109,7 @@ function sync(force = false): void {
         const key = `${drone.id}|${position.lat}|${position.lon}`;
         if (key !== centredOn) {
           centredOn = key;
+          takeOver(); // Follow is the dispatcher choosing the view
           map.panTo(at, { animate: false });
         }
       }
@@ -155,14 +164,17 @@ onMounted(() => {
   map.on("move", () => {
     const c = map?.getCenter();
     if (c) center.value = { lat: c.lat, lon: c.lng };
+    if (map) zoom.value = map.getZoom();
   });
-  fitAreaOnce();
+  // Any hand on the map (mouse, touch, wheel, keys, the zoom buttons) ends the automatic fit.
+  for (const type of ["pointerdown", "wheel", "keydown"]) container.value.addEventListener(type, takeOver, { passive: true });
+  fitArea();
   sync();
   // The card can be resized by the splitters; Leaflet only needs to re-measure, not redraw.
   if (typeof ResizeObserver !== "undefined") {
     sizeObserver = new ResizeObserver(() => {
       map?.invalidateSize();
-      fitAreaOnce();
+      fitArea();
     });
     sizeObserver.observe(container.value);
   }
@@ -187,7 +199,7 @@ onBeforeUnmount(() => {
   sizeObserver = null;
   map?.remove();
   map = null;
-  fitted = false;
+  userMoved = false;
   tiles = null;
   markers.clear();
   drawn.clear();
@@ -212,6 +224,7 @@ onBeforeUnmount(() => {
         :data-marker-count="markerCount"
         :data-center-lat="center.lat.toFixed(5)"
         :data-center-lon="center.lon.toFixed(5)"
+        :data-zoom="zoom"
         :data-tile-url="tileUrlAttr"
       />
       <div
