@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import AlertBadge from "../components/AlertBadge.vue";
+import AlertList from "../components/AlertList.vue";
 import ConnectionBadge from "../components/ConnectionBadge.vue";
 import DronePanel from "../components/DronePanel.vue";
 import FleetList from "../components/FleetList.vue";
@@ -54,6 +56,7 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
         Sky<span>haul</span>
       </div>
       <ConnectionBadge />
+      <AlertBadge />
       <div class="spacer" />
       <UserMenu />
     </header>
@@ -101,18 +104,7 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
           @update:model-value="set('map', $event)"
           @reset="reset('map')"
         />
-        <section
-          class="alerts"
-          aria-labelledby="alerts-heading"
-          data-testid="alerts"
-        >
-          <h2 id="alerts-heading">
-            Alerts
-          </h2>
-          <p data-testid="alerts-empty">
-            No alerts
-          </p>
-        </section>
+        <AlertList />
       </div>
       <PanelSplitter
         class="split-v"
@@ -181,29 +173,6 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
 }
 .split-v {
   display: none;
-}
-.alerts {
-  flex: 1;
-  min-height: 120px;
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.alerts h2 {
-  margin: 0;
-  padding: 11px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  border-bottom: 1px solid var(--line);
-}
-.alerts p {
-  margin: 0;
-  padding: 14px;
-  color: var(--muted);
 }
 /* Phone: one column, the list above the map (document order). Desktop: three columns. */
 @media (min-width: 1001px) {

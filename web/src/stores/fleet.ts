@@ -3,6 +3,7 @@ import { computed, shallowReactive } from "vue";
 import { api } from "../api/client";
 import type { Drone, DroneLiveState, DroneStateEvent } from "../api/types";
 import { closeFleetSocket, openFleetSocket } from "../realtime/socket";
+import { useAlertsStore } from "./alerts";
 import { useAuthStore } from "./auth";
 import { useCommandsStore } from "./commands";
 import { useConnectionStore } from "./connection";
@@ -99,12 +100,18 @@ export const useFleetStore = defineStore("fleet", () => {
     openFleetSocket(() => auth.token, {
       onConnect: () => {
         connection.set("live");
-        if (hasConnected) void loadAll(); // events sent while we were away are gone
+        if (hasConnected) {
+          // Events sent while we were away are gone: REST is the source of truth.
+          void loadAll();
+          void useAlertsStore().refetch();
+        }
         hasConnected = true;
       },
       onDisconnect: () => connection.set("reconnecting"),
       onDroneState: applyState,
       onCommandUpdated: (event) => useCommandsStore().applyUpdate(event),
+      onAlertRaised: (event) => useAlertsStore().applyUpdate(event),
+      onAlertUpdated: (event) => useAlertsStore().applyUpdate(event),
       onAuthError: () => auth.logout("expired"),
     });
   }

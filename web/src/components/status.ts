@@ -1,6 +1,6 @@
 import type { FleetDrone } from "../stores/fleet";
 
-export type Tone = "ok" | "crit" | "neutral";
+export type Tone = "ok" | "warn" | "crit" | "neutral";
 
 export interface ChipView {
   text: string;

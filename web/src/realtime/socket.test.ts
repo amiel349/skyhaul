@@ -14,6 +14,8 @@ describe("fleet socket", () => {
       onDisconnect: vi.fn(),
       onDroneState: vi.fn(),
       onCommandUpdated: vi.fn(),
+      onAlertRaised: vi.fn(),
+      onAlertUpdated: vi.fn(),
       onAuthError: vi.fn(),
     });
 
@@ -37,9 +39,30 @@ describe("fleet socket", () => {
       onDisconnect: vi.fn(),
       onDroneState: vi.fn(),
       onCommandUpdated,
+      onAlertRaised: vi.fn(),
+      onAlertUpdated: vi.fn(),
       onAuthError: vi.fn(),
     });
 
     expect(on).toHaveBeenCalledWith("command.updated", onCommandUpdated);
+  });
+
+  it("passes alert.raised and alert.updated events to their handlers", () => {
+    const on = vi.fn();
+    io.mockReturnValueOnce({ on, disconnect: vi.fn(), removeAllListeners: vi.fn() });
+    const onAlertRaised = vi.fn();
+    const onAlertUpdated = vi.fn();
+    openFleetSocket(() => "tok-1", {
+      onConnect: vi.fn(),
+      onDisconnect: vi.fn(),
+      onDroneState: vi.fn(),
+      onCommandUpdated: vi.fn(),
+      onAlertRaised,
+      onAlertUpdated,
+      onAuthError: vi.fn(),
+    });
+
+    expect(on).toHaveBeenCalledWith("alert.raised", onAlertRaised);
+    expect(on).toHaveBeenCalledWith("alert.updated", onAlertUpdated);
   });
 });
