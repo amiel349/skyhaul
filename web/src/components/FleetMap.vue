@@ -194,6 +194,8 @@ onMounted(() => {
     center: [area.center.lat, area.center.lon],
     zoom: 13,
     attributionControl: false,
+    // A zoom animation ends in a timer; a test that unmounts mid-zoom would let it fire on a removed map.
+    zoomAnimation: import.meta.env.MODE !== "test",
   });
   const attribution = import.meta.env.VITE_TILE_URL
     ? (import.meta.env.VITE_TILE_ATTRIBUTION ?? "")
