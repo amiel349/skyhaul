@@ -30,13 +30,20 @@ describe("AlertList", () => {
     expect(fakeDb.alerts.listed[0]?.get("open")).toBe("true");
   });
 
-  it("shows the unread count beside the Alerts title and keeps its accessible name", async () => {
-    fakeDb.alerts.add(alertFaketory.build({ id: A1 }), alertFaketory.build({ id: A2, code: "LINK_LOST" }));
+  it("shows the number of alerts in the table right beside the Alerts title", async () => {
+    fakeDb.alerts.add(
+      alertFaketory.build({ id: A1 }),
+      alertFaketory.build({ id: A2, code: "LINK_LOST", acknowledged_by: "u1", acknowledged_at: "2026-01-01T00:05:00Z" }),
+    );
 
     await render();
 
-    await expect.element(page.getByRole("heading", { name: "Alerts" })).toBeInTheDocument();
-    await expect.element(page.getByRole("status", { name: "2 unread alerts" })).toBeInTheDocument();
+    const heading = page.getByRole("heading", { name: "Alerts" });
+    const count = page.getByRole("status", { name: "2 alerts, 1 unread" });
+    await expect.element(count).toBeInTheDocument();
+    const gap = count.element().getBoundingClientRect().left - heading.element().getBoundingClientRect().right;
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThan(40); // beside the title, not pushed over to the filters
   });
 
   it("shows the drone id for an alert whose drone is not in the fleet", async () => {
