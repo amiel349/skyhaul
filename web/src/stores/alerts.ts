@@ -11,6 +11,9 @@ export type AckResult =
 
 const SEVERITY_RANK: Record<AlertSeverity, number> = { CRITICAL: 0, WARNING: 1, INFO: 2 };
 
+/** Unread = open (not cleared) and not yet acknowledged by anyone. */
+const isUnread = (alert: Alert): boolean => !alert.cleared_at && !alert.acknowledged_at;
+
 /** The group an alert sits in: needs attention (open, nobody has it), acknowledged, then cleared. */
 function group(alert: Alert): number {
   if (alert.cleared_at) return 2;
@@ -60,7 +63,9 @@ export const useAlertsStore = defineStore("alerts", () => {
     ),
   );
   /** Unread = open (not cleared) and not yet acknowledged by anyone. */
-  const unread = computed(() => sorted.value.filter((a) => !a.cleared_at && !a.acknowledged_at).length);
+  const unread = computed(() => sorted.value.filter(isUnread).length);
+  /** Unread among the rows the table shows, so the count beside the title never contradicts the table. */
+  const visibleUnread = computed(() => visible.value.filter(isUnread).length);
 
   /** Insert or merge by id. An older state, or a duplicate, changes nothing. */
   function applyUpdate(incoming: Alert): void {
@@ -170,5 +175,5 @@ export const useAlertsStore = defineStore("alerts", () => {
     filter.openOnly = true;
   }
 
-  return { byId, filter, loadError, ackError, acking, visible, unread, applyUpdate, load, refetch, setFilter, ack, reset };
+  return { byId, filter, loadError, ackError, acking, visible, unread, visibleUnread, applyUpdate, load, refetch, setFilter, ack, reset };
 });
