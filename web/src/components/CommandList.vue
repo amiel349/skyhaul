@@ -29,9 +29,16 @@ const TONE: Record<CommandStatus, Tone> = {
 };
 
 // Names, details and reasons are untrusted drone text: always interpolated, never HTML.
+// A list (the waypoints of START_MISSION) is summarised by its size, an object is shown as compact
+// JSON; String() would print "[object Object]" for both.
+const formatValue = (value: unknown): string => {
+  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "item" : "items"}`;
+  if (typeof value === "object" && value !== null) return JSON.stringify(value);
+  return String(value);
+};
 const payloadText = (command: Command): string =>
   Object.entries(command.payload)
-    .map(([key, value]) => `${key} ${String(value)}`)
+    .map(([key, value]) => `${key} ${formatValue(value)}`)
     .join(", ");
 </script>
 
