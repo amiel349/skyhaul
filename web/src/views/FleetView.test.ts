@@ -64,7 +64,7 @@ describe("FleetView", () => {
   it("says so when there are no drones, and shows the empty alerts placeholder", async () => {
     await renderView();
 
-    await expect.element(page.getByRole("status")).toHaveTextContent("No drones yet");
+    await expect.element(page.getByText("No drones yet")).toBeInTheDocument();
     await expect.element(page.getByText("No alerts", { exact: true })).toBeInTheDocument();
   });
 
@@ -100,7 +100,7 @@ describe("FleetView", () => {
 
   it("changes the map height with a pointer drag", async () => {
     await renderView();
-    await expect.element(page.getByRole("status")).toBeInTheDocument(); // the layout has settled
+    await expect.element(page.getByText("No drones yet")).toBeInTheDocument(); // the layout has settled
     const handle = bar("Resize map and alerts");
     await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
     const rect = handle.element().getBoundingClientRect();

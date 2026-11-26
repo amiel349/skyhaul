@@ -27,6 +27,10 @@ defineProps<{ text: string; tone: Tone; testid?: string }>();
   color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 45%, transparent);
 }
+.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
 /* Dashed border: the LOST state does not rely on colour alone. */
 .crit {
   color: var(--crit);

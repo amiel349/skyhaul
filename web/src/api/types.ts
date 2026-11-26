@@ -12,3 +12,7 @@ export type CommandStatus = components["schemas"]["CommandStatus"];
 export type DirectCommandType = components["schemas"]["DirectCommandType"];
 export type CommandUpdatedEvent = components["schemas"]["CommandUpdatedEvent"];
 export type ApiError = components["schemas"]["Error"];
+export type Alert = components["schemas"]["Alert"];
+export type AlertSeverity = components["schemas"]["AlertSeverity"];
+export type AlertRaisedEvent = components["schemas"]["AlertRaisedEvent"];
+export type AlertUpdatedEvent = components["schemas"]["AlertUpdatedEvent"];

@@ -1,3 +1,4 @@
+export { alertFaketory } from "./alert";
 export { commandFaketory } from "./command";
 export { droneFaketory } from "./drone";
 export { droneStateEventFaketory } from "./drone-state-event";
