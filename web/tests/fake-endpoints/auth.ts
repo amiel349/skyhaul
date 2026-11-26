@@ -15,6 +15,7 @@ export const authEndpoints = {
         token_type: "Bearer",
         expires_in: 900,
         user,
+        csrf_token: "c".repeat(43),
       });
     }),
   ],

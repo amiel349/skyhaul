@@ -54,7 +54,7 @@ def test_login_returns_a_15_minute_token_with_all_claims_and_me_returns_the_call
     response = api.post(LOGIN, json={"email": user.email, "password": password})
     body = response.get_json()
     assert response.status_code == 200
-    assert set(body) == {"access_token", "token_type", "expires_in", "user"}
+    assert set(body) == {"access_token", "token_type", "expires_in", "user", "csrf_token"}
     assert (body["token_type"], body["expires_in"], body["user"]["id"]) == (
         "Bearer",
         900,

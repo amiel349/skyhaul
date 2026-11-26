@@ -1,0 +1,4 @@
+{
+  "error": "session_invalid",
+  "detail": "The session has ended."
+}

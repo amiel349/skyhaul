@@ -13,8 +13,51 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Exchange email and password for an access token */
+        /**
+         * Exchange email and password for an access token and a session cookie
+         * @description Starts a new session family and sets the session cookies. A refresh cookie sent with the request is revoked first, so a planted cookie never survives a login. ADR 0018.
+         */
         post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the refresh cookie and get a new access token
+         * @description Public: no bearer, because the access token may have expired. Needs the refresh cookie and X-CSRF-Token. Every call rotates the cookie. A used token presented again after the grace window revokes the whole family. Rate limit 30/min per ip. ADR 0018.
+         */
+        post: operations["refreshSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the session: revoke the refresh family and clear the cookies
+         * @description Public: works with an expired access token. Idempotent: without a refresh cookie, or with an unknown, expired or revoked one, it clears the cookies and answers 204. A live cookie with a wrong X-CSRF-Token is 403 and revokes nothing. Rate limit 30/min per ip. ADR 0018.
+         */
+        post: operations["logout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -450,12 +493,14 @@ export interface components {
             password: string;
         };
         LoginResponse: {
-            /** @description HS256 JWT, valid for expires_in seconds. No refresh token in M2. */
+            /** @description HS256 JWT, valid for expires_in seconds. Keep it in memory only (ADR 0015); the refresh token travels only in the httpOnly cookie (ADR 0018). */
             access_token: string;
             /** @constant */
             token_type: "Bearer";
             expires_in: number;
             user: components["schemas"]["User"];
+            /** @description CSRF token bound to the refresh cookie set with this response (also set in the skyhaul_csrf cookie). Echo it in X-CSRF-Token on /auth/refresh and /auth/logout. Not a credential on its own. */
+            csrf_token: string;
         };
         User: {
             id: components["schemas"]["Uuid"];
@@ -705,6 +750,17 @@ export interface components {
             items: components["schemas"]["AuditEntry"][];
             next_cursor: components["schemas"]["Cursor"] | null;
         };
+        /** @description Same shape as LoginResponse: a new access token, a new CSRF token and the user, so a reload needs no /auth/me. The refresh cookie is rotated. */
+        RefreshResponse: {
+            /** @description HS256 JWT, valid for expires_in seconds. Keep it in memory only (ADR 0015); the refresh token travels only in the httpOnly cookie (ADR 0018). */
+            access_token: string;
+            /** @constant */
+            token_type: "Bearer";
+            expires_in: number;
+            user: components["schemas"]["User"];
+            /** @description CSRF token bound to the refresh cookie set with this response (also set in the skyhaul_csrf cookie). Echo it in X-CSRF-Token on /auth/refresh and /auth/logout. Not a credential on its own. */
+            csrf_token: string;
+        };
     };
     responses: {
         /** @description Malformed request (bad JSON, bad query parameter, bad cursor). */
@@ -808,6 +864,36 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description session_invalid: no refresh cookie, or it is unknown, expired, revoked or reused, or the user is inactive. Both session cookies are cleared; the client goes to login. */
+        SessionInvalid: {
+            headers: {
+                "X-Request-ID": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description csrf_failed: the X-CSRF-Token header is missing or does not match the refresh cookie. Nothing is rotated or revoked. */
+        CsrfFailed: {
+            headers: {
+                "X-Request-ID": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description refresh_superseded: another request (another tab) rotated this refresh token within the grace window. Nothing is revoked; retry once with the current cookies. */
+        RefreshSuperseded: {
+            headers: {
+                "X-Request-ID": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         /** @description Page size. */
@@ -835,6 +921,10 @@ export interface components {
         AlertId: components["schemas"]["Uuid"];
         /** @description Accepted if it is a UUID, otherwise replaced by a generated one. Echoed in the response and in every log line. */
         RequestIdHeader: string;
+        /** @description The csrf_token of the last login or refresh (also in the skyhaul_csrf cookie). Must match the token bound to the presented refresh cookie, else 403 csrf_failed. ADR 0018. */
+        CsrfHeader: string;
+        /** @description Opaque refresh token (32 random bytes, base64url), set by login and refresh, sent by the browser only to /api/v1/auth, never readable by script. Missing, unknown, expired, revoked or reused: 401 session_invalid. ADR 0018. */
+        RefreshCookie: string;
     };
     requestBodies: never;
     headers: {
@@ -842,6 +932,8 @@ export interface components {
         RequestId: components["schemas"]["Uuid"];
         /** @description Seconds until the limit resets. */
         RetryAfter: number;
+        /** @description Sets skyhaul_refresh (the refresh token: HttpOnly, SameSite=Strict, Path=/api/v1/auth, Secure unless AUTH_COOKIE_SECURE=false, Max-Age = the session's remaining lifetime) and skyhaul_csrf (the CSRF token, readable by the SPA: not HttpOnly, SameSite=Strict, Path=/, same Secure and Max-Age). Logout and a refused refresh clear both with Max-Age=0. ADR 0018. */
+        SetSessionCookies: string;
     };
     pathItems: never;
 }
@@ -855,7 +947,10 @@ export interface operations {
                 "X-Request-ID"?: components["parameters"]["RequestIdHeader"];
             };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                /** @description Opaque refresh token (32 random bytes, base64url), set by login and refresh, sent by the browser only to /api/v1/auth, never readable by script. Missing, unknown, expired, revoked or reused: 401 session_invalid. ADR 0018. */
+                skyhaul_refresh?: components["parameters"]["RefreshCookie"];
+            };
         };
         requestBody: {
             content: {
@@ -867,6 +962,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-ID": components["headers"]["RequestId"];
+                    "Set-Cookie": components["headers"]["SetSessionCookies"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -878,6 +974,70 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["Unprocessable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    refreshSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Accepted if it is a UUID, otherwise replaced by a generated one. Echoed in the response and in every log line. */
+                "X-Request-ID"?: components["parameters"]["RequestIdHeader"];
+                /** @description The csrf_token of the last login or refresh (also in the skyhaul_csrf cookie). Must match the token bound to the presented refresh cookie, else 403 csrf_failed. ADR 0018. */
+                "X-CSRF-Token": components["parameters"]["CsrfHeader"];
+            };
+            path?: never;
+            cookie?: {
+                /** @description Opaque refresh token (32 random bytes, base64url), set by login and refresh, sent by the browser only to /api/v1/auth, never readable by script. Missing, unknown, expired, revoked or reused: 401 session_invalid. ADR 0018. */
+                skyhaul_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Set-Cookie": components["headers"]["SetSessionCookies"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefreshResponse"];
+                };
+            };
+            401: components["responses"]["SessionInvalid"];
+            403: components["responses"]["CsrfFailed"];
+            409: components["responses"]["RefreshSuperseded"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Accepted if it is a UUID, otherwise replaced by a generated one. Echoed in the response and in every log line. */
+                "X-Request-ID"?: components["parameters"]["RequestIdHeader"];
+                /** @description The csrf_token of the last login or refresh (also in the skyhaul_csrf cookie). Must match the token bound to the presented refresh cookie, else 403 csrf_failed. ADR 0018. */
+                "X-CSRF-Token": components["parameters"]["CsrfHeader"];
+            };
+            path?: never;
+            cookie?: {
+                /** @description Opaque refresh token (32 random bytes, base64url), set by login and refresh, sent by the browser only to /api/v1/auth, never readable by script. Missing, unknown, expired, revoked or reused: 401 session_invalid. ADR 0018. */
+                skyhaul_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session ended; both cookies cleared. */
+            204: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    "Set-Cookie": components["headers"]["SetSessionCookies"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["CsrfFailed"];
             429: components["responses"]["TooManyRequests"];
         };
     };

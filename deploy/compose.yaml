@@ -139,6 +139,8 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: skyhaul_api
       RABBITMQ_PASSWORD: ${AMQP_API_PASSWORD:?run make env}
+      # Local http: a Secure cookie would never be sent (ADR 0018).
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
