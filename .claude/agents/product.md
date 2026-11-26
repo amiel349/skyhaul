@@ -16,7 +16,7 @@ Turn a roadmap task into a GitHub issue that a developer and a tester can work f
    - A user story from the user's side: dispatcher, admin, viewer, or "the test suite" for infrastructure tasks.
    - Acceptance criteria in Given/When/Then form. Each criterion must be checkable by a test.
    - Edge cases and failure scenarios: link loss, NACK, low battery, permission denied, duplicate commands.
-   - Test notes: which test layer proves each criterion (unit, contract, integration, API E2E, UI E2E). Push coverage as low in the pyramid as it can go.
+   - Test notes: which test layer proves each criterion (unit, contract, integration, API E2E, UI E2E). Push coverage as low in the pyramid as it can go (see the `choosing-tests` skill).
    - Out of scope, so the task stays small.
 3. Show the draft to the human and wait for approval before creating it with `gh issue create`.
 
