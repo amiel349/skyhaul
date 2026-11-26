@@ -195,6 +195,10 @@ services:
       # Inside the container's own network namespace; the host side is 127.0.0.1 below.
       SIM_CONTROL_HOST: 0.0.0.0
       SIM_DEBUG_TAP: ${SIM_DEBUG_TAP:-0}
+      # Each drone's geofence is centred on its own random home inside the demo area
+      # (contracts/geo/demo-area.v1.json, about 9 km corner to corner), so it must cover the whole area:
+      # a GoTo to the far side of the city would otherwise be refused as outside the geofence.
+      SIM_GEOFENCE_RADIUS_M: "10000"
     ports:
       - "127.0.0.1:8100:8100"
     depends_on:

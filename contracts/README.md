@@ -14,6 +14,7 @@ The one definition of every drone message, and the one Codec that checks it. Bac
 | `scripts/generate.py`, `scripts/gen_ts.mjs` | The generators (`make contracts`, `make contracts-check`) | Yes |
 | `openapi/fleet-api.v1.json` | OpenAPI 3.1 contract of the fleet API and its Socket.IO events ([M2 design](../docs/architecture/m2-design.md)) | Yes, contract changes land here first |
 | `openapi/meta/` | The official OpenAPI 3.1 meta-schema, vendored for the validity test | No |
+| `geo/demo-area.v1.json` | The Tel Aviv box where simulated drones start and where the map opens (one file, read by the seed script and the web map) | Yes |
 | `tests/` | Contract, unit, concurrency and integration tests | Yes |
 
 ## Use

@@ -1,7 +1,8 @@
 import L from "leaflet";
 import { droneFaketory, droneStateEventFaketory, liveStateFaketory } from "../../tests/faketories";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
+import area from "../../../contracts/geo/demo-area.v1.json";
 import { useFleetStore } from "../stores/fleet";
 import { useSelectionStore } from "../stores/selection";
 import { fakeDb } from "../../tests/fake-db";
@@ -165,6 +166,54 @@ describe("FleetMap", () => {
     expect(container.querySelector(".leaflet-tile")).toBeNull();
   });
 
+  it("opens on the Tel Aviv area and does not re-fit when a drone moves", async () => {
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds");
+    const { pinia } = await renderMap(
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.05, 34.79) }) }),
+    );
+
+    // The box gets its size after the mount; the map fits the area once it has one.
+    await vi.waitFor(() => expect(fit).toHaveBeenCalled());
+    const centre = (name: string) => () => Number(fleetMap().element().getAttribute(name));
+    await expect.poll(centre("data-center-lat")).toBeCloseTo(area.center.lat, 2);
+    await expect.poll(centre("data-center-lon")).toBeCloseTo(area.center.lon, 2);
+    expect(centre("data-center-lat")()).toBeGreaterThan(area.bounds.lat_min);
+    expect(centre("data-center-lat")()).toBeLessThan(area.bounds.lat_max);
+    expect(centre("data-center-lon")()).toBeGreaterThan(area.bounds.lon_min);
+    expect(centre("data-center-lon")()).toBeLessThan(area.bounds.lon_max);
+    await frame();
+    await frame();
+    const fitsBefore = fit.mock.calls.length;
+
+    useFleetStore(pinia).applyState(
+      droneStateEventFaketory.build({
+        drone_id: "d1",
+        state: liveStateFaketory.build({ position: at(32.06, 34.8), ts: "2026-01-01T00:01:00.000Z" }),
+      }),
+    );
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-lat", "32.06");
+
+    expect(fit.mock.calls.length).toBe(fitsBefore);
+    await settleCanvas();
+  });
+
+  it("keeps fitting the area while the box settles, so a half-laid-out first size does not stick", async () => {
+    const { container } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
+    container.style.width = "260px";
+    container.style.height = "160px";
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0);
+    await frame();
+    await frame();
+    const small = Number(fleetMap().element().getAttribute("data-zoom"));
+
+    container.style.width = "900px";
+    container.style.height = "600px";
+
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(small);
+    await expect.poll(() => Number(fleetMap().element().getAttribute("data-center-lon"))).toBeCloseTo(area.center.lon, 2);
+    await settleCanvas();
+  });
+
   it("re-measures itself when its box changes size", async () => {
     const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
     const { container } = await renderMap(droneFaketory.build({ id: "d1" }));
@@ -174,6 +223,24 @@ describe("FleetMap", () => {
     container.style.width = "400px";
 
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+  });
+
+  it("stops fitting the area once the user has taken over the map", async () => {
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds");
+    const { container } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
+    await vi.waitFor(() => expect(fit).toHaveBeenCalled());
+    await frame();
+    await frame();
+    await userEvent.click(page.getByRole("button", { name: "Zoom in" })); // a hand on the map
+    const fitsBefore = fit.mock.calls.length;
+    const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
+    invalidate.mockClear();
+
+    container.style.width = "450px";
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled()); // the resize was seen
+
+    expect(fit.mock.calls.length).toBe(fitsBefore); // and did not snap the view back to the area
+    await settleCanvas();
   });
 
   it("says there is no live data when drones are registered but none has a position, and hides it once one does", async () => {
