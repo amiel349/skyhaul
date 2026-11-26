@@ -21,8 +21,8 @@ async function renderView(route = "/") {
   return { pinia: view.pinia, view, router: view.router };
 }
 
-const bar = (id: string) => page.getByTestId(id);
-const focus = (id: string) => (bar(id).element() as HTMLElement).focus();
+const bar = (name: string) => page.getByRole("separator", { name });
+const focus = (name: string) => (bar(name).element() as HTMLElement).focus();
 
 describe("FleetView", () => {
   it("loads the drones and opens the live socket on mount, and closes it on leaving", async () => {
@@ -64,44 +64,44 @@ describe("FleetView", () => {
   it("says so when there are no drones, and shows the empty alerts placeholder", async () => {
     await renderView();
 
-    await expect.element(page.getByTestId("fleet-empty")).toHaveTextContent("No drones yet");
-    await expect.element(page.getByTestId("alerts-empty")).toHaveTextContent("No alerts");
+    await expect.element(page.getByRole("status")).toHaveTextContent("No drones yet");
+    await expect.element(page.getByText("No alerts", { exact: true })).toBeInTheDocument();
   });
 
   it("says so when the drones cannot be loaded", async () => {
     worker.use(droneEndpoints.respondWith(500));
     await renderView();
 
-    await expect.element(page.getByTestId("fleet-error")).toHaveTextContent("Could not load the drones");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Could not load the drones");
   });
 
   it("resizes a panel with the keyboard within its limits, and Home, End and Enter jump and reset", async () => {
     await renderView();
-    focus("splitter-fleet-map");
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", "270");
+    focus("Resize fleet list");
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", "270");
 
     await userEvent.keyboard("{ArrowRight}");
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", "286");
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", "286");
     await userEvent.keyboard("{Shift>}{ArrowLeft}{/Shift}");
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", "222");
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", "222");
     await userEvent.keyboard("{Home}{ArrowLeft}");
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", "200");
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", "200");
     await userEvent.keyboard("{End}");
-    const max = bar("splitter-fleet-map").element().getAttribute("aria-valuemax") ?? "";
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", max);
+    const max = bar("Resize fleet list").element().getAttribute("aria-valuemax") ?? "";
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", max);
     await userEvent.keyboard("{Enter}");
-    await expect.element(bar("splitter-fleet-map")).toHaveAttribute("aria-valuenow", "270");
+    await expect.element(bar("Resize fleet list")).toHaveAttribute("aria-valuenow", "270");
 
     // The right panel grows when its divider moves left.
-    focus("splitter-map-panel");
+    focus("Resize drone panel");
     await userEvent.keyboard("{ArrowLeft}");
-    await expect.element(bar("splitter-map-panel")).toHaveAttribute("aria-valuenow", "346");
+    await expect.element(bar("Resize drone panel")).toHaveAttribute("aria-valuenow", "346");
   });
 
   it("changes the map height with a pointer drag", async () => {
     await renderView();
-    await expect.element(page.getByTestId("fleet-empty")).toBeInTheDocument(); // the layout has settled
-    const handle = bar("splitter-map-alerts");
+    await expect.element(page.getByRole("status")).toBeInTheDocument(); // the layout has settled
+    const handle = bar("Resize map and alerts");
     await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
     const rect = handle.element().getBoundingClientRect();
     // A dot 50px above the bar's centre, placed in page coordinates so it stays put if the page scrolls.

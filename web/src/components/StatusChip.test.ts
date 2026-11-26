@@ -7,8 +7,8 @@ describe("StatusChip", () => {
   it("shows its text in words with the tone it was given", async () => {
     await renderComponent(StatusChip, { props: { text: "LOST", tone: "crit", testid: "chip" } });
 
-    const chip = page.getByTestId("chip");
-    await expect.element(chip).toHaveTextContent("LOST");
-    await expect.element(chip).toHaveAttribute("data-tone", "crit");
+    await expect.element(page.getByText("LOST", { exact: true })).toBeInTheDocument();
+    // The tone exists only as a data attribute, so the chip is found by its test id.
+    await expect.element(page.getByTestId("chip")).toHaveAttribute("data-tone", "crit");
   });
 });

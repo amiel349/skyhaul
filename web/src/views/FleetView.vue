@@ -68,6 +68,7 @@ onBeforeUnmount(() => auth.token && fleet.stopRealtime());
     <p
       v-else-if="fleet.loaded.done && fleet.list.length === 0"
       class="msg"
+      role="status"
       data-testid="fleet-empty"
     >
       No drones yet

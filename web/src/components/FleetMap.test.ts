@@ -29,6 +29,10 @@ const settleCanvas = async () => {
   await frame();
 };
 
+const fleetMap = () => page.getByRole("region", { name: "Fleet map" });
+// A marker's label is the drone's name. Its position, link and selection exist only as data attributes on that label.
+const marker = (name: string) => page.getByText(name);
+
 const at = (lat: number, lon: number) => ({ lat, lon, altitude_m: 42, heading_deg: 0, ground_speed_mps: 5 });
 
 describe("FleetMap", () => {
@@ -38,24 +42,24 @@ describe("FleetMap", () => {
       droneFaketory.build({ id: "d2", state: null }),
     );
 
-    await expect.element(page.getByTestId("fleet-map")).toHaveAttribute("data-marker-count", "1");
-    const label = page.getByTestId("fleet-marker-label-d1");
+    await expect.element(fleetMap()).toHaveAttribute("data-marker-count", "1");
+    const label = marker("Drone d1");
     await expect.element(label).toHaveAttribute("data-lat", "32.0123");
     await expect.element(label).toHaveAttribute("data-lon", "34.8123");
   });
 
   it("highlights the marker of the selected drone", async () => {
     const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
-    await expect.element(page.getByTestId("fleet-marker-label-d1")).toHaveAttribute("data-selected", "false");
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-selected", "false");
 
     useSelectionStore(pinia).select("d1");
 
-    await expect.element(page.getByTestId("fleet-marker-label-d1")).toHaveAttribute("data-selected", "true");
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-selected", "true");
   });
 
   it("moves a marker on an event and marks a LOST drone with a text label", async () => {
     const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
-    await expect.element(page.getByTestId("fleet-marker-label-d1")).toHaveAttribute("data-link", "UP");
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-link", "UP");
 
     useFleetStore(pinia).applyState(
       droneStateEventFaketory.build({
@@ -64,7 +68,7 @@ describe("FleetMap", () => {
       }),
     );
 
-    const label = page.getByTestId("fleet-marker-label-d1");
+    const label = marker("Drone d1 (link lost)");
     await expect.element(label).toHaveAttribute("data-link", "LOST");
     await expect.element(label).toMatchTextContent("link lost");
     await expect.element(label).toHaveAttribute("data-lat", "32.5");
@@ -86,7 +90,7 @@ describe("FleetMap", () => {
     );
 
     // Leaflet pans in whole pixels, so the centre lands within a pixel of the drone.
-    const centre = (name: string) => () => Number(page.getByTestId("fleet-map").element().getAttribute(name));
+    const centre = (name: string) => () => Number(fleetMap().element().getAttribute(name));
     await expect.poll(centre("data-center-lat")).toBeCloseTo(32.01, 3);
     await expect.poll(centre("data-center-lon")).toBeCloseTo(34.81, 3);
     await settleCanvas();
@@ -97,8 +101,9 @@ describe("FleetMap", () => {
     const selection = useSelectionStore(pinia);
     selection.select("d1");
     selection.setFollow(true);
-    const map = page.getByTestId("fleet-map");
+    const map = fleetMap();
     await expect.element(map).toBeInTheDocument();
+    // Leaflet's own pane has no role or text, so it is the one element found by class.
     const pane = map.element().querySelector(".leaflet-map-pane")!;
     const mouse = (type: string, x: number, y: number, target: EventTarget) =>
       target.dispatchEvent(
@@ -117,13 +122,13 @@ describe("FleetMap", () => {
 
   it("does not re-centre or redraw the followed drone when another drone updates", async () => {
     const { pinia } = await renderMap(
-      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0, 34.8) }) }),
-      droneFaketory.build({ id: "d2", state: liveStateFaketory.build({ position: at(32.1, 34.9) }) }),
+      droneFaketory.build({ id: "d1", name: "Alpha", state: liveStateFaketory.build({ position: at(32.0, 34.8) }) }),
+      droneFaketory.build({ id: "d2", name: "Bravo", state: liveStateFaketory.build({ position: at(32.1, 34.9) }) }),
     );
     const selection = useSelectionStore(pinia);
     selection.select("d1");
     selection.setFollow(true);
-    const d1Label = page.getByTestId("fleet-marker-label-d1");
+    const d1Label = marker("Alpha");
     await expect.element(d1Label).toHaveAttribute("data-selected", "true");
     const before = d1Label.element();
     const pan = vi.spyOn(L.Map.prototype, "panTo");
@@ -136,33 +141,32 @@ describe("FleetMap", () => {
       }),
     );
 
-    await expect.element(page.getByTestId("fleet-marker-label-d2")).toHaveAttribute("data-lat", "32.2");
+    await expect.element(marker("Bravo")).toHaveAttribute("data-lat", "32.2");
     expect(pan).not.toHaveBeenCalled();
-    expect(page.getByTestId("fleet-marker-label-d1").element()).toBe(before);
+    expect(marker("Alpha").element()).toBe(before);
     await settleCanvas();
   });
 
   it("renders a hostile drone name as text, never as HTML", async () => {
     const hostile = '<img src=x onerror="alert(1)">';
-    const { container } = await renderMap(droneFaketory.build({ id: "d1", name: hostile }));
+    await renderMap(droneFaketory.build({ id: "d1", name: hostile }));
 
-    const label = page.getByTestId("fleet-marker-label-d1");
-    await expect.element(label).toHaveTextContent(hostile);
-    expect(container.querySelector("img")).toBeNull();
+    await expect.element(page.getByText(hostile, { exact: true })).toBeInTheDocument();
+    expect(page.getByRole("img").elements()).toHaveLength(0);
   });
 
   it("loads no tiles under test", async () => {
     vi.stubEnv("VITE_TILE_URL", "https://tiles.example/{z}/{x}/{y}.png");
     const { container } = await renderMap(droneFaketory.build({ id: "d1" }));
 
-    await expect.element(page.getByTestId("fleet-map")).toHaveAttribute("data-tile-url", "");
+    await expect.element(fleetMap()).toHaveAttribute("data-tile-url", "");
     expect(container.querySelector(".leaflet-tile")).toBeNull();
   });
 
   it("re-measures itself when its box changes size", async () => {
     const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
     const { container } = await renderMap(droneFaketory.build({ id: "d1" }));
-    await expect.element(page.getByTestId("fleet-map")).toBeInTheDocument();
+    await expect.element(fleetMap()).toBeInTheDocument();
     invalidate.mockClear();
 
     container.style.width = "400px";

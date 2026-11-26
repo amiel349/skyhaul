@@ -48,6 +48,7 @@ const LINKS: LinkFilter[] = ["ALL", "UP", "LOST"];
     <p
       v-if="fleet.list.length > 0 && filter.visible.length === 0"
       class="none"
+      role="status"
       data-testid="fleet-no-match"
     >
       No drones match
