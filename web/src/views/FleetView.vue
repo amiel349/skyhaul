@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import ConnectionBadge from "../components/ConnectionBadge.vue";
 import DronePanel from "../components/DronePanel.vue";
 import FleetList from "../components/FleetList.vue";
@@ -9,10 +10,33 @@ import UserMenu from "../components/UserMenu.vue";
 import { useResizable } from "../layout/useResizable";
 import { useAuthStore } from "../stores/auth";
 import { useFleetStore } from "../stores/fleet";
+import { useSelectionStore } from "../stores/selection";
 
 const auth = useAuthStore();
 const fleet = useFleetStore();
+const selection = useSelectionStore();
+const route = useRoute();
+const router = useRouter();
 const { sizes, limits, set, reset } = useResizable();
+
+// The URL and the selection follow each other: /drones/:id selects, selecting updates the URL.
+const routeId = () => (typeof route.params.id === "string" ? route.params.id : null);
+watch(
+  routeId,
+  (id) => {
+    if (id) void selection.open(id);
+    else if (selection.selectedId) selection.select(null);
+  },
+  { immediate: true },
+);
+watch(
+  () => selection.selectedId,
+  (id) => {
+    if (id && id !== routeId()) void router.push({ name: "drone", params: { id } });
+    // Closed (deselected or removed) while the URL names a drone; an unknown id keeps its URL.
+    else if (!id && routeId() && !selection.notFoundId) void router.replace({ name: "fleet" });
+  },
+);
 
 onMounted(() => {
   void fleet.loadAll();

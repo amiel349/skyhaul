@@ -67,6 +67,29 @@ describe("fleet store", () => {
     expect(connection.status).toBe("live");
   });
 
+  it("keeps the list order when a state arrives, and puts a new drone in id order", () => {
+    const fleet = useFleetStore();
+    fleet.drones.set("d2", { id: "d2", name: "b", state: null });
+    fleet.drones.set("d1", { id: "d1", name: "a", state: null });
+    expect(fleet.list.map((d) => d.id)).toEqual(["d1", "d2"]);
+
+    fleet.applyState(makeDroneStateEvent({ drone_id: "d2" }));
+    expect(fleet.list.map((d) => d.id)).toEqual(["d1", "d2"]);
+  });
+
+  it("loads one drone by id, and reports a 404 as not_found", async () => {
+    await signedIn();
+    server.use(
+      http.get(url("/drones/d9"), () => HttpResponse.json(makeDrone({ id: "d9", name: "Nine" }))),
+      http.get(url("/drones/nope"), () => new HttpResponse(null, { status: 404 })),
+    );
+    const fleet = useFleetStore();
+
+    expect(await fleet.loadOne("d9")).toBe("ok");
+    expect(fleet.drones.get("d9")?.name).toBe("Nine");
+    expect(await fleet.loadOne("nope")).toBe("not_found");
+  });
+
   it("logs out with Session expired when the socket answers token_expired", async () => {
     const auth = await signedIn();
     useFleetStore().startRealtime();

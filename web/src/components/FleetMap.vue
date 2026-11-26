@@ -17,6 +17,7 @@ const selection = useSelectionStore();
 const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
+const center = ref({ lat: 32.0, lon: 34.8 });
 const tileUrlAttr = computed(() => tileUrl() ?? "");
 
 let map: L.Map | null = null;
@@ -63,6 +64,7 @@ function sync(): void {
       existing.setTooltipContent(label());
       existing.getTooltip()?.getElement()?.classList.toggle("is-selected", selected);
       if (selected) existing.bringToFront();
+      if (selected && selection.follow) map.panTo(at, { animate: false });
     } else {
       const marker = L.circleMarker(at, { radius: look.radius, ...look.path }).addTo(map);
       marker.bindTooltip(label(), {
@@ -107,6 +109,12 @@ onMounted(() => {
     L.control.attribution({ prefix: false }).addAttribution(attribution).addTo(map);
   }
   applyTiles();
+  // Dragging the map by hand is the dispatcher taking over: Follow turns off.
+  map.on("dragstart", () => selection.setFollow(false));
+  map.on("move", () => {
+    const c = map?.getCenter();
+    if (c) center.value = { lat: c.lat, lon: c.lng };
+  });
   sync();
   // The card can be resized by the splitters; Leaflet only needs to re-measure, not redraw.
   if (typeof ResizeObserver !== "undefined") {
@@ -118,6 +126,7 @@ onMounted(() => {
 // One pass over the drones per change; only moved markers are touched, the map is not rebuilt.
 watch(() => fleet.list, sync, { flush: "post" });
 watch(() => selection.selectedId, sync, { flush: "post" });
+watch(() => selection.follow, sync, { flush: "post" }); // turning Follow on centres at once
 // A theme switch changes the CSS tokens; the canvas has to be told to redraw with the new values.
 watch(
   () => theme.resolved,
@@ -154,6 +163,8 @@ onBeforeUnmount(() => {
         aria-label="Fleet map"
         data-testid="fleet-map"
         :data-marker-count="markerCount"
+        :data-center-lat="center.lat.toFixed(5)"
+        :data-center-lon="center.lon.toFixed(5)"
         :data-tile-url="tileUrlAttr"
       />
     </div>

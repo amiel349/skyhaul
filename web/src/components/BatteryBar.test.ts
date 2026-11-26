@@ -20,6 +20,14 @@ describe("BatteryBar", () => {
     await expect.element(bar).toHaveAttribute("data-low", "true");
   });
 
+  it("says CRITICAL in words under 10%", async () => {
+    await render(BatteryBar, { props: { pct: 5, testid: "battery" } });
+
+    const bar = page.getByTestId("battery");
+    await expect.element(bar).toHaveTextContent("CRITICAL 5%");
+    await expect.element(bar).toHaveAttribute("data-critical", "true");
+  });
+
   it("says No data without a value", async () => {
     await render(BatteryBar, { props: { pct: null, testid: "battery" } });
 

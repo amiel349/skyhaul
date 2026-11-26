@@ -20,4 +20,13 @@ describe("router guard", () => {
     await router.push("/login");
     expect(router.currentRoute.value.name).toBe("fleet");
   });
+
+  it("keeps a drone link as ?next= for the login page", async () => {
+    const router = createAppRouter(createMemoryHistory());
+
+    await router.push("/drones/d1");
+
+    expect(router.currentRoute.value.name).toBe("login");
+    expect(router.currentRoute.value.query.next).toBe("/drones/d1");
+  });
 });

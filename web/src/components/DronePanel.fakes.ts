@@ -19,4 +19,9 @@ export const fakeEndpoints = [
   http.get(apiUrl("/drones"), () =>
     HttpResponse.json<Ok<"/drones", "get">>({ items: [...fakeDb.drones.values()], next_cursor: null }),
   ),
+  http.get(apiUrl("/drones/:id"), ({ params }) => {
+    const drone = fakeDb.drones.get(String(params.id));
+    if (!drone) return new HttpResponse(null, { status: 404 });
+    return HttpResponse.json<Ok<"/drones/{drone_id}", "get">>(drone);
+  }),
 ];
