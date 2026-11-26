@@ -17,8 +17,10 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
   });
 
   // The one auth guard: every page but /login needs a token in memory.
-  router.beforeEach((to) => {
+  router.beforeEach(async (to) => {
     const auth = useAuthStore();
+    // A reload has no token in memory but may have a refresh cookie: ask once before deciding.
+    await auth.restore();
     if (!to.meta.public && !auth.token) {
       return { name: "login", query: to.fullPath === "/" ? {} : { next: to.fullPath } };
     }

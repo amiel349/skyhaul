@@ -4,6 +4,8 @@ import { useAuthStore } from "../stores/auth";
 import { THEME_KEY, useThemeStore } from "../theme/theme";
 import UserMenu from "./UserMenu.vue";
 import { renderComponent } from "../../tests/render";
+import { fakeDb } from "../../tests/fake-db";
+import { userFaketory } from "../../tests/faketories";
 
 // The socket module is the one thing the auth store's logout reaches outside the page.
 vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
@@ -11,6 +13,7 @@ vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"
 // Renders only UserMenu, for a signed-in user, with the theme store started on a dark page.
 async function renderMenu() {
   document.documentElement.setAttribute("data-theme", "dark");
+  fakeDb.sessions.start(userFaketory.build()); // the refresh cookie a signed-in browser holds
   const { pinia } = await renderComponent(UserMenu, { user: { role: "admin" } });
   useThemeStore(pinia).init();
   return { auth: useAuthStore(pinia) };
@@ -69,13 +72,14 @@ describe("UserMenu", () => {
     expect(localStorage.getItem(THEME_KEY)).toBe("light");
   });
 
-  it("logs out from the menu and closes it", async () => {
+  it("logs out from the menu: the server is told, the session is cleared and the menu closes", async () => {
     const { auth } = await renderMenu();
     await userEvent.click(avatar());
 
     await userEvent.click(page.getByRole("menuitem", { name: "Log out" }));
 
-    expect(auth.token).toBeNull();
+    await expect.poll(() => auth.token).toBeNull();
+    expect(fakeDb.sessions.logoutRequests).toHaveLength(1);
     await expect.element(menu()).not.toBeInTheDocument();
   });
 });

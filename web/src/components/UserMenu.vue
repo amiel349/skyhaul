@@ -66,7 +66,7 @@ function toggleTheme(): void {
 
 function logout(): void {
   close(false);
-  auth.logout();
+  void auth.signOut();
 }
 </script>
 

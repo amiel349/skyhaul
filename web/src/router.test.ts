@@ -1,12 +1,17 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory } from "vue-router";
+import { authEndpoints } from "../tests/fake-endpoints";
+import { server } from "../tests/node-server";
 import { createAppRouter } from "./router";
 import { useAuthStore } from "./stores/auth";
 
 vi.mock("./realtime/socket", async () => await import("../tests/fake-socket"));
 
-beforeEach(() => setActivePinia(createPinia()));
+beforeEach(() => {
+  setActivePinia(createPinia());
+  server.use(...authEndpoints.happyPath); // the guard asks for a refresh first; no cookie answers 401
+});
 
 describe("router guard", () => {
   it("sends a visitor without a token to the login page, and a signed-in user away from it", async () => {

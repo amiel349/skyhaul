@@ -51,6 +51,13 @@ async function submit(): Promise<void> {
     >
       Session expired. Sign in again.
     </p>
+    <p
+      v-else-if="auth.notice === 'unreachable'"
+      role="status"
+      data-testid="login-unreachable"
+    >
+      Cannot reach the server.
+    </p>
     <form
       novalidate
       data-testid="login-form"
