@@ -206,6 +206,20 @@ describe("FleetMap", () => {
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 
+  it("keeps the view the user chose when the box is resized after the first fit", async () => {
+    const fit = vi.spyOn(L.Map.prototype, "fitBounds");
+    const { container } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
+    await vi.waitFor(() => expect(fit).toHaveBeenCalledTimes(1));
+    const invalidate = vi.spyOn(L.Map.prototype, "invalidateSize");
+    invalidate.mockClear();
+
+    container.style.width = "450px";
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled()); // the resize was seen
+
+    expect(fit).toHaveBeenCalledTimes(1); // and did not snap the map back to the area
+    await settleCanvas();
+  });
+
   it("says there is no live data when drones are registered but none has a position, and hides it once one does", async () => {
     const { pinia } = await renderMap(droneFaketory.build({ id: "d1", state: null }));
 
