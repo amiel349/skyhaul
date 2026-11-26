@@ -1,6 +1,7 @@
 import { page } from "vitest/browser";
 import { describe, expect, it } from "vitest";
 import { useCommandsStore } from "../stores/commands";
+import { useMapPickStore } from "../stores/mapPick";
 import { worker } from "../../tests/worker";
 import { renderComponent } from "../../tests/render";
 import { fakeDb } from "../../tests/fake-db";
@@ -12,9 +13,16 @@ async function renderForm(linkLost = false) {
   return useCommandsStore(pinia);
 }
 
+async function renderGoTo() {
+  const { pinia } = await renderComponent(CommandForm, { props: { droneId: "d1", linkLost: false } });
+  await type().selectOptions("GOTO");
+  return useMapPickStore(pinia);
+}
+
 const type = () => page.getByRole("combobox", { name: "Command" });
 const send = () => page.getByRole("button", { name: /^Send/ });
 const field = (label: string) => page.getByRole("textbox", { name: label });
+const pickButton = () => page.getByRole("button", { name: "Pick on map" });
 const alertText = (text: string) => page.getByRole("alert").filter({ hasText: text });
 
 describe("CommandForm", () => {
@@ -130,5 +138,65 @@ describe("CommandForm", () => {
     await expect.poll(() => fakeDb.commands.requests.length).toBe(2);
     expect(fakeDb.commands.requests[0]?.idempotencyKey).toBeTruthy();
     expect(fakeDb.commands.requests[1]?.idempotencyKey).toBe(fakeDb.commands.requests[0]?.idempotencyKey);
+  });
+
+  it("offers Pick on map only for GoTo, and the button toggles pick mode and shows it with aria-pressed", async () => {
+    const pick = await renderGoTo();
+    await expect.element(pickButton()).toHaveAttribute("aria-pressed", "false");
+
+    await pickButton().click();
+    await expect.element(pickButton()).toHaveAttribute("aria-pressed", "true");
+    expect(pick.active).toBe(true);
+    await pickButton().click();
+
+    await expect.element(pickButton()).toHaveAttribute("aria-pressed", "false");
+    expect(pick.active).toBe(false);
+    await type().selectOptions("TAKEOFF");
+    await expect.element(pickButton()).not.toBeInTheDocument();
+  });
+
+  it("fills latitude and longitude to 6 decimals from a picked point, while typed altitude still sends", async () => {
+    const pick = await renderGoTo();
+
+    pick.pick(32.123456789, 34.8);
+    await field("Altitude (m)").fill("30");
+    await send().click();
+
+    await expect.element(field("Latitude (deg)")).toHaveValue("32.123457");
+    await expect.element(field("Longitude (deg)")).toHaveValue("34.800000");
+    await expect.poll(() => fakeDb.commands.requests.length).toBe(1);
+    expect(fakeDb.commands.requests[0]?.body).toEqual({
+      type: "GOTO",
+      payload: { lat: 32.123457, lon: 34.8, altitude_m: 30 },
+    });
+  });
+
+  it("blocks a picked longitude past the range and removes the marker, while a typed value moves it", async () => {
+    const pick = await renderGoTo();
+    await field("Altitude (m)").fill("30");
+
+    pick.pick(32.1, 190.5);
+    await send().click();
+
+    await expect.element(field("Longitude (deg)")).toHaveAccessibleDescription(expect.stringContaining("Must be -180 to 180"));
+    expect(fakeDb.commands.requests).toHaveLength(0);
+    expect(pick.target).toBeNull();
+    await field("Longitude (deg)").fill("34.5");
+    await expect.poll(() => pick.target).toEqual({ lat: 32.1, lon: 34.5 });
+  });
+
+  it("keeps the target marker when the send fails and drops it once the command is sent", async () => {
+    worker.use(commandEndpoints.respondWith(503, { detail: "The broker did not confirm" }));
+    const pick = await renderGoTo();
+    pick.pick(32.1, 34.8);
+    await field("Altitude (m)").fill("30");
+
+    await send().click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The broker did not confirm");
+    expect(pick.target).toEqual({ lat: 32.1, lon: 34.8 });
+    worker.use(commandEndpoints.respondWith(202));
+    await send().click();
+
+    await expect.poll(() => pick.target).toBeNull();
   });
 });

@@ -8,6 +8,7 @@ import { useCommandsStore } from "./commands";
 import { useConnectionStore } from "./connection";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
+import { useMapPickStore } from "./mapPick";
 import { useSelectionStore } from "./selection";
 
 export type LoginResult =
@@ -50,6 +51,7 @@ export const useAuthStore = defineStore("auth", () => {
     notice.value = reason ?? null;
     useFleetStore().clear();
     useSelectionStore().reset();
+    useMapPickStore().reset();
     useFleetFilterStore().reset();
     useCommandsStore().reset();
     useAlertsStore().reset();

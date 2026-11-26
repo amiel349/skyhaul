@@ -4,6 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import area from "../../../contracts/geo/demo-area.v1.json";
 import { useFleetStore } from "../stores/fleet";
+import { useMapPickStore } from "../stores/mapPick";
 import { useSelectionStore } from "../stores/selection";
 import { fakeDb } from "../../tests/fake-db";
 import { droneEndpoints } from "../../tests/fake-endpoints";
@@ -147,6 +148,135 @@ describe("FleetMap", () => {
     await expect.element(marker("Bravo")).toHaveAttribute("data-lat", "32.2");
     expect(pan).not.toHaveBeenCalled();
     expect(marker("Alpha").element()).toBe(before);
+    await settleCanvas();
+  });
+
+  it("in pick mode shows the crosshair and a banner, and Escape or Cancel leaves it without picking", async () => {
+    const { pinia } = await renderMap(droneFaketory.build({ id: "d1" }));
+    const pick = useMapPickStore(pinia);
+    const banner = page.getByRole("status").filter({ hasText: "Click the map to set the target. Esc cancels." });
+
+    pick.start();
+
+    await expect.element(banner).toBeInTheDocument();
+    expect(getComputedStyle(fleetMap().element()).cursor).toBe("crosshair");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(banner).not.toBeInTheDocument();
+    pick.start();
+    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await expect.element(banner).not.toBeInTheDocument();
+    expect(pick.picked).toBeNull();
+    expect(pick.target).toBeNull();
+    await settleCanvas();
+  });
+
+  it("picks the clicked point, drops a target marker and ends pick mode", async () => {
+    const { pinia } = await renderMap();
+    const pick = useMapPickStore(pinia);
+    pick.start();
+    await vi.waitFor(() => expect(Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0));
+    await frame();
+    await frame();
+
+    await userEvent.click(fleetMap()); // the middle of the map: a real click
+
+    const centre = (name: string) => Number(fleetMap().element().getAttribute(name));
+    const label = page.getByText("Target", { exact: true });
+    await expect.element(label).toBeInTheDocument();
+    expect(Number(label.element().getAttribute("data-lat"))).toBeCloseTo(centre("data-center-lat"), 3);
+    expect(Number(label.element().getAttribute("data-lon"))).toBeCloseTo(centre("data-center-lon"), 3);
+    expect(pick.picked).toEqual({ lat: Number(label.element().getAttribute("data-lat")), lon: Number(label.element().getAttribute("data-lon")) });
+    await expect.element(page.getByText("Click the map to set the target. Esc cancels.")).not.toBeInTheDocument();
+    await settleCanvas();
+  });
+
+  it("ignores a click on the map when pick mode is off", async () => {
+    const { pinia } = await renderMap();
+    const pick = useMapPickStore(pinia);
+    await vi.waitFor(() => expect(Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0));
+    await frame();
+    await frame();
+
+    await userEvent.click(fleetMap()); // an ordinary click, not picking
+
+    expect(pick.picked).toBeNull();
+    expect(pick.target).toBeNull();
+    await expect.element(page.getByText("Target", { exact: true })).not.toBeInTheDocument();
+    await settleCanvas();
+  });
+
+  it("does not pick when the map is dragged, and the map still pans", async () => {
+    const { pinia } = await renderMap();
+    const pick = useMapPickStore(pinia);
+    pick.start();
+    await vi.waitFor(() => expect(Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0));
+    await frame();
+    await frame();
+    const before = fleetMap().element().getAttribute("data-center-lon");
+
+    await userEvent.pointer([
+      { target: fleetMap(), coords: { x: 250, y: 200 }, keys: "[MouseLeft>]" },
+      { coords: { x: 300, y: 215 } },
+      { coords: { x: 350, y: 230 } },
+      { keys: "[/MouseLeft]" },
+    ]);
+
+    await expect.poll(() => fleetMap().element().getAttribute("data-center-lon")).not.toBe(before);
+    expect(pick.picked).toBeNull();
+    expect(pick.active).toBe(true);
+    await settleCanvas();
+  });
+
+  it("accepts a click outside the demo area and warns about it", async () => {
+    const { pinia } = await renderMap();
+    const pick = useMapPickStore(pinia);
+    await vi.waitFor(() => expect(Number(fleetMap().element().getAttribute("data-zoom"))).toBeGreaterThan(0));
+    const zoom = () => Number(fleetMap().element().getAttribute("data-zoom"));
+    await frame();
+    await frame();
+    const start = zoom();
+    // One zoom animation at a time: Leaflet ignores a click that lands while one runs.
+    for (let i = 1; i <= 3; i++) {
+      await userEvent.click(page.getByRole("button", { name: "Zoom out" }));
+      await expect.poll(zoom).toBeLessThanOrEqual(start - i);
+    }
+    await frame();
+    await frame();
+    pick.start();
+    const box = fleetMap().element().getBoundingClientRect();
+
+    await userEvent.click(fleetMap(), { position: { x: box.width - 20, y: box.height - 20 } });
+
+    await expect.element(page.getByText("Outside the demo area, the drone may refuse it")).toBeInTheDocument();
+    await expect.element(page.getByText("Target", { exact: true })).toBeInTheDocument();
+    await settleCanvas();
+  });
+
+  it("pauses Follow while picking and resumes it afterwards", async () => {
+    const { pinia } = await renderMap(
+      droneFaketory.build({ id: "d1", state: liveStateFaketory.build({ position: at(32.0, 34.8) }) }),
+    );
+    const selection = useSelectionStore(pinia);
+    const pick = useMapPickStore(pinia);
+    selection.select("d1");
+    selection.setFollow(true);
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-selected", "true");
+    pick.start();
+    const pan = vi.spyOn(L.Map.prototype, "panTo");
+    pan.mockClear();
+
+    useFleetStore(pinia).applyState(
+      droneStateEventFaketory.build({
+        drone_id: "d1",
+        state: liveStateFaketory.build({ position: at(32.01, 34.81), ts: "2026-01-01T00:01:00.000Z" }),
+      }),
+    );
+    await expect.element(marker("Drone d1")).toHaveAttribute("data-lat", "32.01");
+
+    expect(pan).not.toHaveBeenCalled();
+    expect(selection.follow).toBe(true);
+    pick.cancel();
+    await vi.waitFor(() => expect(pan).toHaveBeenCalled());
     await settleCanvas();
   });
 

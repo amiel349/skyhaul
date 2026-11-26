@@ -6,6 +6,7 @@ import { loginOk, server, url } from "../../tests/node-server";
 import { useAuthStore } from "./auth";
 import { useFleetStore } from "./fleet";
 import { useFleetFilterStore } from "./fleetFilter";
+import { useMapPickStore } from "./mapPick";
 import { useSelectionStore } from "./selection";
 
 vi.mock("../realtime/socket", async () => await import("../../tests/fake-socket"));
@@ -89,5 +90,18 @@ describe("auth store", () => {
     expect(selection.notFoundId).toBeNull();
     expect(filter.query).toBe("");
     expect(filter.link).toBe("ALL");
+  });
+
+  it("logout ends pick mode and drops the picked target", async () => {
+    const auth = await signedIn();
+    const pick = useMapPickStore();
+    pick.pick(32.1, 34.8);
+    pick.start();
+
+    auth.logout();
+
+    expect(pick.active).toBe(false);
+    expect(pick.picked).toBeNull();
+    expect(pick.target).toBeNull();
   });
 });

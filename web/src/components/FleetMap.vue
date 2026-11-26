@@ -4,8 +4,10 @@ import "leaflet/dist/leaflet.css";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import area from "../../../contracts/geo/demo-area.v1.json";
 import { useFleetStore } from "../stores/fleet";
+import { useMapPickStore } from "../stores/mapPick";
 import { useSelectionStore } from "../stores/selection";
 import { useThemeStore } from "../theme/theme";
+import AppButton from "./AppButton.vue";
 import { markerLook } from "./markerStyle";
 import { DEFAULT_ATTRIBUTION, tileUrlFor } from "./tiles";
 
@@ -15,6 +17,7 @@ function tileUrl(): string | undefined {
 
 const fleet = useFleetStore();
 const selection = useSelectionStore();
+const mapPick = useMapPickStore();
 const theme = useThemeStore();
 const container = ref<HTMLElement | null>(null);
 const markerCount = ref(0);
@@ -31,6 +34,7 @@ let map: L.Map | null = null;
 let tiles: L.TileLayer | null = null;
 let sizeObserver: ResizeObserver | null = null;
 const markers = new Map<string, L.CircleMarker>();
+let targetMarker: L.CircleMarker | null = null;
 /**
  * The map opens on the demo area and keeps fitting it while its box settles (fonts, saved panel
  * sizes, the window) until the dispatcher takes over: a drag, a zoom, a click or Follow. Fitting only
@@ -105,7 +109,8 @@ function sync(force = false): void {
         if (selected) existing.bringToFront();
         drawn.set(drone.id, signature);
       }
-      if (selected && selection.follow) {
+      // Follow is paused while picking, so the map does not move under the click; it resumes after.
+      if (selected && selection.follow && !mapPick.active) {
         const key = `${drone.id}|${position.lat}|${position.lon}`;
         if (key !== centredOn) {
           centredOn = key;
@@ -121,7 +126,10 @@ function sync(force = false): void {
         offset: [10, 0],
         className: "drone-tag",
       });
-      marker.on("click", () => selection.select(drone.id));
+      // While picking, a click on a drone is a pick: the click bubbles to the map, the drone is not selected.
+      marker.on("click", () => {
+        if (!mapPick.active) selection.select(drone.id);
+      });
       markers.set(drone.id, marker);
       drawn.set(drone.id, signature);
     }
@@ -134,6 +142,41 @@ function sync(force = false): void {
     }
   }
   markerCount.value = markers.size;
+}
+
+/** The GoTo target marker: drawn while the store holds a target, with its position as data attributes. */
+function syncTarget(): void {
+  if (!map) return;
+  const point = mapPick.target;
+  if (!point) {
+    targetMarker?.remove();
+    targetMarker = null;
+    return;
+  }
+  const at = L.latLng(point.lat, point.lon);
+  const label = document.createElement("span");
+  label.textContent = "Target";
+  label.dataset.testid = "map-target-label";
+  label.dataset.lat = String(point.lat);
+  label.dataset.lon = String(point.lon);
+  if (targetMarker) {
+    targetMarker.setLatLng(at);
+    targetMarker.setTooltipContent(label);
+    return;
+  }
+  targetMarker = L.circleMarker(at, {
+    radius: 7,
+    color: "#ffffff",
+    weight: 2,
+    fillColor: "#e5484d",
+    fillOpacity: 1,
+    interactive: false, // a click on the target goes to the map, so it can be picked again
+  }).addTo(map);
+  targetMarker.bindTooltip(label, { permanent: true, direction: "top", offset: [0, -8], className: "drone-tag" });
+}
+
+function onEscape(event: KeyboardEvent): void {
+  if (event.key === "Escape") mapPick.cancel();
 }
 
 function applyTiles(): void {
@@ -159,6 +202,11 @@ onMounted(() => {
     L.control.attribution({ prefix: false }).addAttribution(attribution).addTo(map);
   }
   applyTiles();
+  // Leaflet fires `click` only for a real click: after a drag it does not, so a drag never picks.
+  map.on("click", (event: L.LeafletMouseEvent) => {
+    if (mapPick.active) mapPick.pick(event.latlng.lat, event.latlng.lng);
+  });
+  syncTarget();
   // Dragging the map by hand is the dispatcher taking over: Follow turns off.
   map.on("dragstart", () => selection.setFollow(false));
   map.on("move", () => {
@@ -184,6 +232,12 @@ onMounted(() => {
 watch(() => fleet.list, () => sync(), { flush: "post" });
 watch(() => selection.selectedId, () => sync(), { flush: "post" });
 watch(() => selection.follow, () => sync(), { flush: "post" }); // turning Follow on centres at once
+watch(() => mapPick.target, () => syncTarget(), { flush: "post" });
+watch(() => mapPick.active, (on) => {
+  if (on) window.addEventListener("keydown", onEscape);
+  else window.removeEventListener("keydown", onEscape);
+  sync(); // Follow resumes when pick mode ends
+}, { flush: "post" });
 // A theme switch changes the CSS tokens; the canvas has to be told to redraw with the new values.
 watch(
   () => theme.resolved,
@@ -195,6 +249,8 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onEscape);
+  targetMarker = null;
   sizeObserver?.disconnect();
   sizeObserver = null;
   map?.remove();
@@ -218,6 +274,7 @@ onBeforeUnmount(() => {
       <div
         ref="container"
         class="map"
+        :class="{ picking: mapPick.active }"
         role="region"
         aria-label="Fleet map"
         data-testid="fleet-map"
@@ -227,6 +284,31 @@ onBeforeUnmount(() => {
         :data-zoom="zoom"
         :data-tile-url="tileUrlAttr"
       />
+      <div class="tools">
+        <p
+          v-if="mapPick.active"
+          class="banner"
+          role="status"
+          data-testid="map-pick-banner"
+        >
+          <span>Click the map to set the target. Esc cancels.</span>
+          <AppButton
+            size="sm"
+            data-testid="map-pick-cancel"
+            @click="mapPick.cancel()"
+          >
+            Cancel
+          </AppButton>
+        </p>
+        <p
+          v-if="mapPick.outsideArea"
+          class="banner warn"
+          role="status"
+          data-testid="map-target-outside-area"
+        >
+          Outside the demo area, the drone may refuse it
+        </p>
+      </div>
       <div
         v-if="noLiveData"
         class="notice"
@@ -272,6 +354,40 @@ h2 {
 .map {
   position: absolute;
   inset: 0;
+}
+.map.picking,
+.map.picking :deep(*) {
+  cursor: crosshair !important;
+}
+.tools {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.banner {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  pointer-events: auto;
+}
+.banner.warn {
+  color: var(--warn);
+  border-color: var(--warn);
 }
 .notice {
   position: absolute;

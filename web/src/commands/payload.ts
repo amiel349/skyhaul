@@ -73,6 +73,23 @@ export type Validation = { ok: true; payload: Payload } | { ok: false; errors: F
 const rangeText = (spec: FieldSpec): string =>
   `Must be ${spec.min} to ${spec.max}${spec.maxExclusive ? ` (not including ${spec.max})` : ""}`;
 
+const outOfRange = (spec: FieldSpec, value: number): boolean =>
+  value < spec.min || value > spec.max || (spec.maxExclusive && value >= spec.max);
+
+/** The GoTo target held by the lat and lon inputs, or null while either is empty, not a number or out of range. */
+export function parsePoint(values: Partial<Record<FieldName, string>>): { lat: number; lon: number } | null {
+  const [latSpec, lonSpec] = FIELDS.GOTO;
+  if (!latSpec || !lonSpec) return null;
+  const parse = (spec: FieldSpec): number | null => {
+    const raw = (values[spec.name] ?? "").trim();
+    const value = Number(raw);
+    return raw === "" || !Number.isFinite(value) || outOfRange(spec, value) ? null : value;
+  };
+  const lat = parse(latSpec);
+  const lon = parse(lonSpec);
+  return lat === null || lon === null ? null : { lat, lon };
+}
+
 /** Check what the dispatcher typed (strings, as in the inputs) against the contract limits. */
 export function validatePayload(type: DirectCommandType, values: Partial<Record<FieldName, string>>): Validation {
   const errors: FieldErrors = {};
@@ -85,7 +102,7 @@ export function validatePayload(type: DirectCommandType, values: Partial<Record<
     }
     const value = Number(raw);
     if (!Number.isFinite(value)) errors[spec.name] = "Enter a number";
-    else if (value < spec.min || value > spec.max || (spec.maxExclusive && value >= spec.max)) {
+    else if (outOfRange(spec, value)) {
       errors[spec.name] = rangeText(spec);
     } else payload[spec.name] = value;
   }
