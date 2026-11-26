@@ -106,11 +106,16 @@ export const useAlertsStore = defineStore("alerts", () => {
    */
   async function refetch(): Promise<void> {
     const started = epoch;
+    // Only an alert we already held when the request left can be judged gone: the answer is a
+    // snapshot, so one raised over the socket while it was in flight is newer and must stay.
+    const heldBefore = new Set(byId.keys());
     const items = await fetchPage({ open: true });
     if (started !== epoch) return;
     if (items) {
       const open = new Set(items.map((a) => a.id));
-      for (const [id, alert] of [...byId]) if (!alert.cleared_at && !open.has(id)) byId.delete(id);
+      for (const [id, alert] of [...byId]) {
+        if (heldBefore.has(id) && !alert.cleared_at && !open.has(id)) byId.delete(id);
+      }
       for (const item of items) applyUpdate(item);
     }
     if (!filter.openOnly || filter.droneId !== "") await load();

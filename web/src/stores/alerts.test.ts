@@ -97,6 +97,30 @@ describe("alerts store", () => {
     await vi.waitFor(() => expect(store.visible.map((a) => a.id).sort()).toEqual(["a2", "a3"]));
   });
 
+  it("keeps an alert that was raised while a refetch was in flight", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      loginOk,
+      http.get(url("/alerts"), async () => {
+        await gate; // the server answers from a snapshot taken before "live" existed
+        return HttpResponse.json({ items: [alert("a1")], next_cursor: null });
+      }),
+    );
+    await useAuthStore().login("a@skyhaul.dev", "pw");
+    const store = useAlertsStore();
+    store.applyUpdate(alert("a1"));
+    const refetching = store.refetch();
+
+    store.applyUpdate(alert("live")); // alert.raised arrives while the request is in flight
+    release();
+    await refetching;
+
+    expect(store.visible.map((a) => a.id).sort()).toEqual(["a1", "live"]);
+  });
+
   it("takes alert.raised and alert.updated from the socket", async () => {
     server.use(loginOk);
     await useAuthStore().login("a@skyhaul.dev", "pw");
