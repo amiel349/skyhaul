@@ -1,80 +1,117 @@
 ---
 name: web-component-tests
-description: How to write and place component tests for the Vue dispatcher UI in web/. Use whenever you add or change a .vue file (component, view or App.vue), write a Vitest test for one, or add fake data and fake endpoints for it.
+description: How to write and place component tests for the Vue dispatcher UI in web/. Use whenever you add or change a .vue file (component, view or App.vue), write a Vitest test for one, or add faketories, fake databases or fake endpoints for it.
 ---
 
 # Web component tests
 
-One rule: **every `.vue` file has its own test file next to it with the same name, and that test renders only that component.**
+**Every `.vue` file has its own test file next to it with the same name, and that test renders and tests that one component.**
 
 ```
 web/src/components/PanelSplitter.vue
-web/src/components/PanelSplitter.test.ts      # always
-web/src/components/FleetList.vue
-web/src/components/FleetList.test.ts          # always
-web/src/components/FleetList.fakes.ts         # only if FleetList needs data or endpoints
+web/src/components/PanelSplitter.test.ts
+web/src/views/FleetView.vue
+web/src/views/FleetView.test.ts
 ```
 
 Applies to `components/`, `views/` and `App.vue`. Stores, composables and pure functions have their own `*.test.ts` next to them (plain jsdom, no browser).
 
+> **Status.** The shared infrastructure below is being moved to `web/tests/` in two PRs (infrastructure and fakes first, then the query migration). Until they land, it still lives in `web/src/testing/` and each data-backed component has a `<Name>.fakes.ts`. Tests written in the meantime should already follow the query, interaction and structure rules in this file.
+
+## Shared infrastructure: `web/tests/`
+
+Not the repo-root `tests/` (that is the Python and Playwright framework).
+
+```
+web/tests/
+  setup-browser.ts      # global hooks for component tests
+  setup-unit.ts         # global hooks for unit tests
+  render.ts             # the thin renderComponent helper
+  worker.ts             # MSW worker (browser), node-server.ts (unit tests)
+  reset.ts              # fake dbs register their reset() here
+  public/mockServiceWorker.js
+  faketories/           # one per domain: drone, live-state, command, user (+ index.ts)
+  fake-db/              # one stateful in-memory db per domain, each with reset()
+  fake-endpoints/       # one per domain: drones, commands, auth (+ index.ts)
+  fake-socket.ts
+```
+
+- **Faketories** build one piece of typed test data with overrides: `droneFaketory.build({ link: "LOST" })`. No behaviour, no state. Never write a raw mock payload inside a `.test.ts`.
+- **Fake db** is a small in-memory store per domain. It holds what the test put in and what the API changed (a `POST /commands` shows up in the next `GET /commands`). Each has `reset()`.
+- **Fake endpoints** are MSW handlers per domain over that domain's fake db, typed from the generated OpenAPI types (`Ok<path, method>`, `Body<path, method>`, `apiUrl()`), so a contract change breaks the build, not just a test. The happy path for every domain is registered once in the setup, so a request with no handler still fails the test. A test overrides only what it needs through named helpers, for example `commandEndpoints.respondWith(429, { retryAfter: 12 })`, with `worker.use(...)`.
+- **Never** mock `fetch`, an HTTP library or the API client module.
+- The socket is faked with `fake-socket.ts`, which tests drive by calling the registered handlers.
+
+## The mount helper: `renderComponent`
+
+One thin helper in `web/tests/render.ts`:
+
+```ts
+await renderComponent(FleetList, { props, route: "/", user: { role: "dispatcher" } });
+```
+
+It does **only plumbing**: a fresh Pinia, an optional router with an initial route, an optional signed-in user with a role, and the global plugins. It does **no stubbing**, **no data seeding** and nothing specific to one component. Data comes from the test's own faketories and fake db. If a test needs something special it passes it as an option, never through a hidden default. Each test file still imports and renders its own component and asserts on it.
+
 ## What a component test does
 
-- Renders **one** component. Child components that are not the point are stubbed. It does not render the app, the router or a parent view unless the component under test *is* that view.
-- Mounts the component directly in the test file. There is no shared `mount()` helper: each file shows what it renders, with which props, store state and fakes.
-- Asserts what a user sees and does: text, roles, `data-testid`, clicks, keys, emitted events. Never component internals.
-- One behaviour per `it`, named as a sentence. Light mode applies (see CLAUDE.md): one test per behaviour the issue promises, no extra edge cases.
-- Runs in the real browser project (Vitest browser mode) so layout, focus, pointer and canvas are real. Do not stub `HTMLCanvasElement` or `ResizeObserver` there.
+- Renders **the component under test with its real children**. Do not stub children. Stub only a heavy third-party part where a real one makes the test slow or unreliable (for example the Leaflet map inside a view test), and say why in a comment. A test never renders a parent of the component it tests.
+- Runs in the real browser project (Vitest browser mode) so layout, focus, pointer and canvas are real. Do not stub `HTMLCanvasElement` or `ResizeObserver`.
+- **Black box.** Assert only on what is rendered, emitted events, navigation and network requests. Never read or write component internals (`wrapper.vm`, refs, methods). Calling the store through the UI is fine, reaching into it is not. A third-party library is the one exception (a spy on Leaflet's `panTo` in a map test).
+- **Arrange, Act, Assert**, in that order, separated by a blank line. Keep `describe` flat, one per component. Name each `it` as the user-facing outcome: `"shows LOW when the battery is under 20%"`.
+- One behaviour per `it`. Light mode applies (see CLAUDE.md): one test per behaviour the issue promises, no extra edge cases.
+- **Fake timers** for debounce, polling, toast dismissal and countdowns: `vi.useFakeTimers()` then `vi.advanceTimersByTimeAsync(...)`. Never wait with a real `setTimeout`. The setup restores real timers after each test.
+- **Isolation.** The setup resets after every test: fake dbs, endpoint overrides, Pinia, `localStorage`, `data-theme`, spies and timers. A test never relies on another test's state.
 
-## Fakes: per component, never global
+## Element queries, in this order
 
-A component that reads or writes through the API gets its own `<Component>.fakes.ts` with:
+Use the browser-mode locators from `vitest/browser` (`page.getBy...`). Prefer the most user-centric one that works:
 
-- a **fake db**: a small in-memory, stateful store with only the entities this component touches and a `reset()`;
-- **fake endpoints**: MSW handlers over that db, typed from the generated OpenAPI types (`web/src/api/types.ts`) so a contract change breaks the build, not just the test.
+1. `getByRole` (with `name`) or `getByLabelText`: buttons, links, headings, inputs, checkboxes, selects.
+2. `getByPlaceholder`: an input with no visible label.
+3. `getByText`: non-interactive text (messages, badges, cells).
+4. A display value check: the current value of a filled field.
+5. `getByAltText` or `getByTitle`: images and icons without text.
+6. `getByTestId`: last resort, for a container with no role or text. The `data-testid` attributes stay because the E2E page objects depend on them; component tests do not need them for most things.
 
-Rules:
-- Another component's fakes are never imported. If two components need the same shape, share a **factory** instead.
-- **Factories** (`makeDrone()`, `makeAlert()`, `makeUser()` ...) build typed test data with overrides: `makeDrone({ link: "LOST" })`. They live in `web/src/testing/factories/`, one file per entity, and have no behaviour.
-- Network is faked at the HTTP layer (MSW), never by stubbing the API client module.
-- The socket is faked with `web/src/testing/fake-socket.ts`, which tests drive by calling the registered handlers. Use it with `vi.mock("../realtime/socket", async () => await import("../testing/fake-socket"))`.
-- Type fake endpoints with `Ok<path, method>` and `Body<path, method>` from `web/src/testing/api.ts` and build URLs with `apiUrl()`.
-- A fake db registers its `reset()` with `registerReset()` from `web/src/testing/reset.ts`; the setup file runs them after each test.
+Never query by CSS class, tag or structure. Assert presence with `await expect.element(locator).toBeInTheDocument()` (it retries until the element appears, so there is no separate "wait for" query) and absence with `.not.toBeInTheDocument()`. If a query needs a role or label that the component lacks, fix the component's accessibility: that is a real bug the test found.
 
-## Shared setup: `web/src/testing/setup-browser.ts`
+## Interactions
 
-Global hooks only, registered once as the Vitest setup file:
-- start the MSW worker (`web/src/testing/worker.ts`) before all tests and stop it after;
-- after each test: reset the fake db, new Pinia, clear `localStorage`, remove `data-theme`, restore fake timers;
-- fail a test on any request no handler matched, and on any `console.error`.
-
-It does not contain test data or a mount helper.
+Use `userEvent` from `vitest/browser`: `await userEvent.click(locator)`, `await userEvent.fill(locator, "text")`, `await userEvent.keyboard("{Enter}")`. It sends real browser events. Do not dispatch synthetic events by hand unless a library cannot be driven otherwise, and then say so in a comment.
 
 ## Skeleton
 
 ```ts
 // FleetList.test.ts
-import { page } from "vitest/browser";
-import { render } from "vitest-browser-vue";
-import { createPinia } from "pinia";
+import { page, userEvent } from "vitest/browser";
 import { describe, expect, it } from "vitest";
 import FleetList from "./FleetList.vue";
-import { fakeDb, fakeEndpoints } from "./FleetList.fakes";
-import { makeDrone } from "../testing/factories/drone";
-import { worker } from "../testing/worker";
+import { renderComponent } from "../../tests/render";
+import { droneFaketory } from "../../tests/faketories";
+import { fakeDb } from "../../tests/fake-db";
 
 describe("FleetList", () => {
-  it("shows a row with the battery and link state for each drone", async () => {
-    fakeDb.drones.add(makeDrone({ id: "d1", battery_pct: 3 }));
-    worker.use(...fakeEndpoints);
+  it("shows LOW next to a drone whose battery is under 20%", async () => {
+    fakeDb.drones.add(droneFaketory.build({ id: "d1", name: "Courier 1", battery_pct: 3 }));
 
-    await render(FleetList, { global: { plugins: [createPinia()] } });
+    await renderComponent(FleetList, { user: { role: "dispatcher" } });
 
-    await expect.element(page.getByTestId("fleet-row-battery-d1")).toHaveTextContent("LOW 3%");
+    await expect.element(page.getByRole("button", { name: /Courier 1/ })).toMatchTextContent("LOW");
+  });
+
+  it("filters the rows by the search text", async () => {
+    fakeDb.drones.add(droneFaketory.build({ name: "Alpha" }), droneFaketory.build({ name: "Bravo" }));
+    await renderComponent(FleetList, { user: { role: "dispatcher" } });
+
+    await userEvent.fill(page.getByLabelText("Search drones"), "alp");
+
+    await expect.element(page.getByText("Alpha")).toBeInTheDocument();
+    await expect.element(page.getByText("Bravo")).not.toBeInTheDocument();
   });
 });
 ```
 
-Adjust imports to the versions installed in `web/package.json`; keep the shape. `render` is async: always `await` it. Import `worker` from `testing/worker.ts`, never from the setup file (a test that imports the setup file runs its hooks twice). `toHaveTextContent("x")` is an exact match; use `toMatchTextContent("x")` for a part of the text.
+Adjust imports to the installed versions. `toHaveTextContent("x")` is an exact match; use `toMatchTextContent("x")` for part of the text. Import `worker` from `tests/worker.ts`, never from a setup file (a test that imports a setup file runs its hooks twice).
 
 ## Running the tests
 
@@ -111,8 +148,9 @@ A component test that shows up in `pnpm test` fails there, because it imports `v
 
 ## Before you finish a component change
 
-- [ ] `Foo.vue` has `Foo.test.ts` beside it, rendering only `Foo`.
-- [ ] Data-backed components have `Foo.fakes.ts` (fake db + fake endpoints) and no import from another component's fakes.
-- [ ] No shared mount helper, no global fake db, no module stubbing of the API client.
-- [ ] Every asserted element has a stable `data-testid` (`area-thing[-id]`).
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` pass in `web/`.
+- [ ] `Foo.vue` has `Foo.test.ts` beside it, testing `Foo` with its real children.
+- [ ] Data comes from faketories, the fake db and fake endpoints in `web/tests/`; no raw payloads in the test, no mocked `fetch` or API client.
+- [ ] Rendered through `renderComponent`; no stubs except a heavy third-party part, with a comment.
+- [ ] Queries follow the priority order; `data-testid` only as a last resort. No CSS-class or tag selectors.
+- [ ] `userEvent` for interactions; fake timers instead of real sleeps; Arrange, Act, Assert.
+- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm test:components && pnpm check:tests && pnpm build` pass in `web/`.
