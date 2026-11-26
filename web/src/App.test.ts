@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import { useAuthStore } from "./stores/auth";
 import { renderComponent } from "../tests/render";
+import { fakeDb } from "../tests/fake-db";
+import { userFaketory } from "../tests/faketories";
 
 // The live socket is the one thing the real fleet page reaches outside the page.
 vi.mock("./realtime/socket", async () => await import("../tests/fake-socket"));
@@ -33,5 +35,22 @@ describe("App", () => {
 
     await expect.poll(() => router.currentRoute.value.name).toBe("login");
     await expect.element(page.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("restores the session on a reload from the refresh cookie, without the login page", async () => {
+    fakeDb.sessions.start(userFaketory.build());
+
+    const { pinia, router } = await renderApp("/");
+
+    await expect.element(page.getByRole("list")).toBeInTheDocument();
+    expect(router.currentRoute.value.name).toBe("fleet");
+    expect(useAuthStore(pinia).token).toBe("tok-2");
+  });
+
+  it("shows the login page on a reload when there is no valid cookie", async () => {
+    const { router } = await renderApp("/");
+
+    await expect.element(page.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(router.currentRoute.value.name).toBe("login");
   });
 });

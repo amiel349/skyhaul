@@ -42,6 +42,13 @@ export function openFleetSocket(
   socket = next;
 }
 
+/** Drop the connection and open it again: the `auth` callback then sends the current token. */
+export function reconnectFleetSocket(): void {
+  if (!socket) return;
+  socket.disconnect();
+  socket.connect();
+}
+
 export function closeFleetSocket(): void {
   socket?.removeAllListeners();
   socket?.disconnect();
