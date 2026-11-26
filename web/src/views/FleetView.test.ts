@@ -1,4 +1,4 @@
-import { droneFaketory } from "../../tests/faketories";
+import { alertFaketory, droneFaketory } from "../../tests/faketories";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFleetStore } from "../stores/fleet";
@@ -66,6 +66,16 @@ describe("FleetView", () => {
 
     await expect.element(page.getByText("No drones yet")).toBeInTheDocument();
     await expect.element(page.getByText("No alerts", { exact: true })).toBeInTheDocument();
+  });
+
+  it("shows the unread alert count in the Alerts section, not in the top bar", async () => {
+    fakeDb.alerts.add(alertFaketory.build({ id: "00000000-0000-4000-8000-0000000000a1" }));
+    await renderView();
+
+    await expect
+      .element(page.getByRole("region", { name: "Alerts" }).getByRole("status", { name: "1 unread alert" }))
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("banner").getByRole("status", { name: /unread/ })).not.toBeInTheDocument();
   });
 
   it("says so when the drones cannot be loaded", async () => {

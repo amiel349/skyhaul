@@ -2,6 +2,7 @@
 import { useFleetStore } from "../stores/fleet";
 import { useFleetFilterStore, type LinkFilter } from "../stores/fleetFilter";
 import { useSelectionStore } from "../stores/selection";
+import AppSelect from "./AppSelect.vue";
 import BatteryBar from "./BatteryBar.vue";
 import { NO_DATA } from "./format";
 import StatusChip from "./StatusChip.vue";
@@ -11,6 +12,7 @@ const fleet = useFleetStore();
 const filter = useFleetFilterStore();
 const selection = useSelectionStore();
 const LINKS: LinkFilter[] = ["ALL", "UP", "LOST"];
+const linkOptions = LINKS.map((value) => ({ value, label: value === "ALL" ? "All links" : value }));
 </script>
 
 <template>
@@ -30,20 +32,15 @@ const LINKS: LinkFilter[] = ["ALL", "UP", "LOST"];
         aria-label="Search drones by name or id"
         data-testid="fleet-search"
       >
-      <select
-        v-model="filter.link"
+      <AppSelect
+        :model-value="filter.link"
         class="select"
-        aria-label="Filter by link"
+        label="Filter by link"
+        hide-label
+        :options="linkOptions"
         data-testid="fleet-filter-link"
-      >
-        <option
-          v-for="option in LINKS"
-          :key="option"
-          :value="option"
-        >
-          {{ option === "ALL" ? "All links" : option }}
-        </option>
-      </select>
+        @update:model-value="filter.link = $event as LinkFilter"
+      />
     </div>
     <p
       v-if="fleet.list.length > 0 && filter.visible.length === 0"
@@ -125,18 +122,19 @@ h2 small {
   gap: 6px;
   padding: 8px 6px 2px;
 }
-.search,
-.select {
+.search {
+  flex: 1;
+  height: 32px;
   background: var(--panel-2);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 0 8px;
   font: inherit;
   min-width: 0;
 }
-.search {
-  flex: 1;
+.select {
+  flex: 0 1 120px;
 }
 .none {
   margin: 0;

@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useAlertsStore } from "../stores/alerts";
 
+withDefaults(defineProps<{ showLabel?: boolean }>(), { showLabel: true });
 const alerts = useAlertsStore();
 const label = computed(() => `${alerts.unread} unread ${alerts.unread === 1 ? "alert" : "alerts"}`);
 </script>
@@ -14,7 +15,10 @@ const label = computed(() => `${alerts.unread} unread ${alerts.unread === 1 ? "a
     :aria-label="label"
     data-testid="alert-badge"
   >
-    <span aria-hidden="true">Alerts</span>
+    <span
+      v-if="showLabel"
+      aria-hidden="true"
+    >Alerts</span>
     <b
       aria-hidden="true"
       data-testid="alert-badge-count"
