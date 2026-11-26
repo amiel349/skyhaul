@@ -4,7 +4,7 @@ SKYHAUL_ENV ?= dev
 DEV_ENV_FILE := $(if $(filter dev,$(SKYHAUL_ENV)),$(wildcard .env.dev))
 COMPOSE := docker compose --env-file .env $(addprefix --env-file ,$(DEV_ENV_FILE)) -f deploy/compose.yaml
 
-.PHONY: help setup env up sim seed down down-volumes logs ps lint typecheck test web-components web-tests-check test-integration contracts contracts-check openapi openapi-check migrate check secrets
+.PHONY: help setup env up web sim seed down down-volumes logs ps lint typecheck test web-components web-tests-check test-integration contracts contracts-check openapi openapi-check migrate check secrets
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -22,6 +22,10 @@ up: ## Start the local stack (SKYHAUL_ENV=dev default; =prod skips .env.dev and 
 	$(COMPOSE) up -d --build --wait
 # A run, not part of `up --wait`: --wait treats a one-shot that exited as a failure.
 	$(if $(filter dev,$(SKYHAUL_ENV)),$(COMPOSE) --profile dev run --rm dev-admin)
+	$(if $(filter dev,$(SKYHAUL_ENV)),@echo "Stack is up. UI: run make web in another terminal then open http://localhost:5173. Drones: make sim and make seed.")
+
+web: ## Run the web UI dev server on http://localhost:5173 (needs make up)
+	cd web && pnpm dev
 
 sim: ## Start RabbitMQ and the drone simulator with its control API (test profile)
 	$(COMPOSE) --profile test up -d --build --wait rabbitmq drone-sim
