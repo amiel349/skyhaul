@@ -1,6 +1,7 @@
 import { commandFaketory } from "../../tests/faketories";
 import { page } from "vitest/browser";
 import { describe, expect, it } from "vitest";
+import type { Command } from "../api/types";
 import { useCommandsStore } from "../stores/commands";
 import { fakeDb } from "../../tests/fake-db";
 import { renderComponent } from "../../tests/render";
@@ -31,6 +32,29 @@ describe("CommandList", () => {
     await expect.element(items().nth(1)).toMatchTextContent("ARM");
     expect(items().elements()).toHaveLength(2);
     expect(fakeDb.commands.listed).toEqual(["d1"]);
+  });
+
+  it("summarises a list in the payload by its size instead of printing [object Object]", async () => {
+    fakeDb.commands.add(
+      commandFaketory.build({
+        id: id(1),
+        type: "START_MISSION",
+        // The generated type is Record<string, never> (a known contract gap); the real payload has values.
+        payload: {
+          mission_id: "m1",
+          waypoints: [
+            { lat: 32.07, lon: 34.8, altitude_m: 40 },
+            { lat: 32.08, lon: 34.81, altitude_m: 40 },
+            { lat: 32.09, lon: 34.82, altitude_m: 40 },
+          ],
+        } as unknown as Command["payload"],
+      }),
+    );
+
+    await renderList();
+
+    await expect.element(page.getByText("mission_id m1, waypoints 3 items")).toBeInTheDocument();
+    await expect.element(page.getByText("[object Object]")).not.toBeInTheDocument();
   });
 
   it("says No commands yet when the drone has none", async () => {
