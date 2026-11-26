@@ -59,7 +59,10 @@ const ackedBy = (alert: Alert): string =>
       <h2 id="alerts-heading">
         Alerts
       </h2>
-      <AlertBadge :show-label="false" />
+      <AlertBadge
+        class="count"
+        :show-label="false"
+      />
       <AppSelect
         id="alerts-severity"
         label="Severity"
@@ -198,12 +201,14 @@ const ackedBy = (alert: Alert): string =>
 }
 .head h2 {
   margin: 0;
-  margin-right: auto;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+}
+.head > .count {
+  margin-right: auto;
 }
 .head > .field {
   width: 150px;
