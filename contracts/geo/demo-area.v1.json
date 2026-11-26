@@ -1,0 +1,14 @@
+{
+  "name": "Tel Aviv",
+  "description": "The area where simulated drones start and where the map opens. Hand-picked to cover central Tel Aviv, Ramat Gan and Givatayim on land (the coast is just west of lon_min). Edit here only: the seed script, the map and later the sandbox manager read this file.",
+  "bounds": {
+    "lat_min": 32.04,
+    "lat_max": 32.11,
+    "lon_min": 34.785,
+    "lon_max": 34.83
+  },
+  "center": {
+    "lat": 32.075,
+    "lon": 34.8075
+  }
+}
