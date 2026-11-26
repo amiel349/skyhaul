@@ -2,7 +2,13 @@
 
 Decision and reasons: [ADR 0018](../adr/0018-session-refresh.md). Contract: `/auth/login`, `/auth/refresh`, `/auth/logout` in [`contracts/openapi/fleet-api.v1.json`](../../contracts/openapi/fleet-api.v1.json), golden bodies in `contracts/examples/api/`. Two issues, one per agent. Backend lands first or in parallel against the contract; the frontend builds against fake endpoints.
 
-The contract change makes `make openapi-check` and `pnpm typecheck` (the web fakes lack `csrf_token`) fail until each issue lands. That is expected: the backend issue turns the first green, the frontend issue the second.
+## Order of work and where the contract lives
+
+The OpenAPI contract, its golden examples and the regenerated TypeScript types are ready on branch `feat/session-refresh-contract` (commit 75bf502). They do NOT land with this design PR: `make openapi-check` compares the API with the contract for every implemented path (login changes here), and `pnpm typecheck` fails while the web login fake lacks `csrf_token`. So:
+
+1. **This PR:** ADR 0018, the threat-model rows and this plan (docs only).
+2. **Backend PR:** starts from `feat/session-refresh-contract` (the contract changes land with the code that implements them, so `make openapi-check` stays green). It also adds `csrf_token` to the login fake in `web/tests/fake-endpoints/auth.ts` (one line), so `pnpm typecheck` stays green.
+3. **Frontend PR:** after the backend PR, against the real contract.
 
 ## Backend issue: refresh cookie, rotation, logout
 

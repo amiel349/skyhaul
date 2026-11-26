@@ -1,6 +1,6 @@
 # 0018 · Session refresh
 
-Status: proposed · 2026-11-26
+Status: proposed · 2026-11-26 · becomes accepted when the backend PR lands
 
 Amends [ADR 0015](0015-frontend-token-handling.md): a reload, a new tab or the 15-minute expiry no longer means signing in again, and the "log out 30 s before expiry" rule becomes "refresh 60 s before expiry". Fulfils the refresh cookie that [ADR 0011](0011-auth-and-roles.md) planned for M3. Implementation plan: [`docs/architecture/session-refresh.md`](../architecture/session-refresh.md).
 
