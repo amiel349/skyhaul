@@ -16,63 +16,66 @@ async function renderMenu() {
   return { auth: useAuthStore(pinia) };
 }
 
+const avatar = () => page.getByRole("button", { name: "Account menu for a@skyhaul.dev" });
+const menu = () => page.getByRole("menu", { name: "Account" });
+const themeToggle = () => page.getByRole("menuitemcheckbox", { name: "Dark mode" });
+
 describe("UserMenu", () => {
   it("shows the initials in the avatar and the login and role in the menu", async () => {
     await renderMenu();
-    await expect.element(page.getByTestId("user-avatar")).toHaveTextContent("A");
+    await expect.element(avatar()).toHaveTextContent("A");
 
-    await userEvent.click(page.getByTestId("user-avatar"));
+    await userEvent.click(avatar());
 
-    await expect.element(page.getByTestId("user-avatar")).toHaveAttribute("aria-expanded", "true");
-    await expect.element(page.getByTestId("user-menu-email")).toHaveTextContent("a@skyhaul.dev");
-    await expect.element(page.getByTestId("user-menu-role")).toHaveTextContent("admin");
+    await expect.element(avatar()).toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByText("a@skyhaul.dev", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("admin", { exact: true })).toBeInTheDocument();
   });
 
   it("closes with Escape and puts the focus back on the avatar", async () => {
     await renderMenu();
-    await userEvent.click(page.getByTestId("user-avatar"));
-    await expect.element(page.getByTestId("user-menu")).toBeInTheDocument();
+    await userEvent.click(avatar());
+    await expect.element(menu()).toBeInTheDocument();
 
     await userEvent.keyboard("{Escape}");
 
-    await expect.element(page.getByTestId("user-menu")).not.toBeInTheDocument();
-    await expect.element(page.getByTestId("user-avatar")).toHaveFocus();
+    await expect.element(menu()).not.toBeInTheDocument();
+    await expect.element(avatar()).toHaveFocus();
   });
 
   it("closes on a click outside", async () => {
     await renderMenu();
     const outside = document.createElement("button");
-    outside.dataset.testid = "outside";
     outside.textContent = "Outside";
     document.body.append(outside);
-    await userEvent.click(page.getByTestId("user-avatar"));
-    await expect.element(page.getByTestId("user-menu")).toBeInTheDocument();
+    await userEvent.click(avatar());
+    await expect.element(menu()).toBeInTheDocument();
 
-    await userEvent.click(page.getByTestId("outside"));
+    await userEvent.click(page.getByRole("button", { name: "Outside" }));
     outside.remove();
 
-    await expect.element(page.getByTestId("user-menu")).not.toBeInTheDocument();
+    await expect.element(menu()).not.toBeInTheDocument();
   });
 
   it("switches the theme at once with the toggle and remembers only its name", async () => {
     await renderMenu();
-    await userEvent.click(page.getByTestId("user-avatar"));
-    await expect.element(page.getByTestId("theme-toggle")).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(avatar());
+    await expect.element(themeToggle()).toHaveAttribute("aria-checked", "true");
 
-    await userEvent.click(page.getByTestId("theme-toggle"));
+    await userEvent.click(themeToggle());
 
-    await expect.element(page.getByTestId("theme-toggle")).toHaveAttribute("aria-checked", "false");
+    await expect.element(themeToggle()).toHaveAttribute("aria-checked", "false");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(localStorage.getItem(THEME_KEY)).toBe("light");
   });
 
   it("logs out from the menu and closes it", async () => {
     const { auth } = await renderMenu();
-    await userEvent.click(page.getByTestId("user-avatar"));
+    await userEvent.click(avatar());
 
-    await userEvent.click(page.getByTestId("user-menu-logout"));
+    await userEvent.click(page.getByRole("menuitem", { name: "Log out" }));
 
     expect(auth.token).toBeNull();
-    await expect.element(page.getByTestId("user-menu")).not.toBeInTheDocument();
+    await expect.element(menu()).not.toBeInTheDocument();
   });
 });
