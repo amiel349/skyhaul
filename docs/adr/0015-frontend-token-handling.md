@@ -1,6 +1,6 @@
 # 0015 · Front-end token handling
 
-Status: proposed · 2026-11-25
+Status: proposed · 2026-11-25 · amended by [ADR 0018](0018-session-refresh.md): a reload refreshes the session instead of logging out, and the 30 s early logout becomes a refresh 60 s before expiry
 
 ## Context
 

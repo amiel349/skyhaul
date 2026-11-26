@@ -1,0 +1,5 @@
+{
+  "error": "csrf_failed",
+  "detail": "The CSRF token is missing or wrong.",
+  "request_id": "7a1c3e5f-2b4d-4c6e-8f10-0000000000aa"
+}

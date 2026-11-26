@@ -4,7 +4,7 @@
   "info": {
     "title": "Skyhaul fleet API",
     "version": "1.0.0-m2",
-    "description": "REST contract of the fleet API (services/api), and the Socket.IO event payloads it pushes. Design: docs/architecture/m2-design.md. The backend implements to this file and the UI generates types from it. Every operation needs a bearer JWT unless it has security: []. x-permission names the permission the server checks. Skyhaul serves a single organization. Lists use keyset pagination: ?limit= and an opaque ?cursor=, answered as {items, next_cursor}.",
+    "description": "REST contract of the fleet API (services/api), and the Socket.IO event payloads it pushes. Design: docs/architecture/m2-design.md. The backend implements to this file and the UI generates types from it. Every operation needs a bearer JWT unless it has security: []. x-permission names the permission the server checks. Skyhaul serves a single organization. Lists use keyset pagination: ?limit= and an opaque ?cursor=, answered as {items, next_cursor}. Sessions: the access token is renewed by POST /auth/refresh with an httpOnly refresh cookie and an X-CSRF-Token header (ADR 0018).",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -53,13 +53,16 @@
         "tags": [
           "auth"
         ],
-        "summary": "Exchange email and password for an access token",
+        "summary": "Exchange email and password for an access token and a session cookie",
         "responses": {
           "200": {
             "description": "OK",
             "headers": {
               "X-Request-ID": {
                 "$ref": "#/components/headers/RequestId"
+              },
+              "Set-Cookie": {
+                "$ref": "#/components/headers/SetSessionCookies"
               }
             },
             "content": {
@@ -103,6 +106,105 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/RefreshCookie"
+          }
+        ],
+        "description": "Starts a new session family and sets the session cookies. A refresh cookie sent with the request is revoked first, so a planted cookie never survives a login. ADR 0018."
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "operationId": "refreshSession",
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate the refresh cookie and get a new access token",
+        "description": "Public: no bearer, because the access token may have expired. Needs the refresh cookie and X-CSRF-Token. Every call rotates the cookie. A used token presented again after the grace window revokes the whole family. Rate limit 30/min per ip. ADR 0018.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Set-Cookie": {
+                "$ref": "#/components/headers/SetSessionCookies"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionInvalid"
+          },
+          "403": {
+            "$ref": "#/components/responses/CsrfFailed"
+          },
+          "409": {
+            "$ref": "#/components/responses/RefreshSuperseded"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          },
+          {
+            "$ref": "#/components/parameters/RefreshCookie"
+          }
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "tags": [
+          "auth"
+        ],
+        "summary": "End the session: revoke the refresh family and clear the cookies",
+        "description": "Public: works with an expired access token. Idempotent: without a refresh cookie, or with an unknown, expired or revoked one, it clears the cookies and answers 204. A live cookie with a wrong X-CSRF-Token is 403 and revokes nothing. Rate limit 30/min per ip. ADR 0018.",
+        "responses": {
+          "204": {
+            "description": "Session ended; both cookies cleared.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Set-Cookie": {
+                "$ref": "#/components/headers/SetSessionCookies"
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/CsrfFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          },
+          {
+            "$ref": "#/components/parameters/RefreshCookie"
           }
         ]
       }
@@ -1456,7 +1558,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "HS256, iss=skyhaul-api, aud=skyhaul, 15 min. Claims identify the user; the role is read from the database on every request."
+        "description": "HS256, iss=skyhaul-api, aud=skyhaul, 15 min. Claims identify the user; the role is read from the database on every request. Renewed through POST /auth/refresh with the httpOnly refresh cookie (ADR 0018)."
       }
     },
     "headers": {
@@ -1471,6 +1573,12 @@
         "schema": {
           "type": "integer",
           "minimum": 0
+        }
+      },
+      "SetSessionCookies": {
+        "description": "Sets skyhaul_refresh (the refresh token: HttpOnly, SameSite=Strict, Path=/api/v1/auth, Secure unless AUTH_COOKIE_SECURE=false, Max-Age = the session's remaining lifetime) and skyhaul_csrf (the CSRF token, readable by the SPA: not HttpOnly, SameSite=Strict, Path=/, same Secure and Max-Age). Logout and a refused refresh clear both with Max-Age=0. ADR 0018.",
+        "schema": {
+          "type": "string"
         }
       }
     },
@@ -1607,6 +1715,28 @@
         "in": "header",
         "required": false,
         "description": "Accepted if it is a UUID, otherwise replaced by a generated one. Echoed in the response and in every log line.",
+        "schema": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "CsrfHeader": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "description": "The csrf_token of the last login or refresh (also in the skyhaul_csrf cookie). Must match the token bound to the presented refresh cookie, else 403 csrf_failed. ADR 0018.",
+        "schema": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "RefreshCookie": {
+        "name": "skyhaul_refresh",
+        "in": "cookie",
+        "required": false,
+        "description": "Opaque refresh token (32 random bytes, base64url), set by login and refresh, sent by the browser only to /api/v1/auth, never readable by script. Missing, unknown, expired, revoked or reused: 401 session_invalid. ADR 0018.",
         "schema": {
           "type": "string",
           "maxLength": 64
@@ -1754,6 +1884,51 @@
       },
       "ServiceUnavailable": {
         "description": "command_not_sent: the broker did not confirm the publish, or the publisher queue is full.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "SessionInvalid": {
+        "description": "session_invalid: no refresh cookie, or it is unknown, expired, revoked or reused, or the user is inactive. Both session cookies are cleared; the client goes to login.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "CsrfFailed": {
+        "description": "csrf_failed: the X-CSRF-Token header is missing or does not match the refresh cookie. Nothing is rotated or revoked.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RefreshSuperseded": {
+        "description": "refresh_superseded: another request (another tab) rotated this refresh token within the grace window. Nothing is revoked; retry once with the current cookies.",
         "headers": {
           "X-Request-ID": {
             "$ref": "#/components/headers/RequestId"
@@ -2010,7 +2185,7 @@
         "properties": {
           "access_token": {
             "type": "string",
-            "description": "HS256 JWT, valid for expires_in seconds. No refresh token in M2."
+            "description": "HS256 JWT, valid for expires_in seconds. Keep it in memory only (ADR 0015); the refresh token travels only in the httpOnly cookie (ADR 0018)."
           },
           "token_type": {
             "const": "Bearer"
@@ -2021,13 +2196,19 @@
           },
           "user": {
             "$ref": "#/components/schemas/User"
+          },
+          "csrf_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "CSRF token bound to the refresh cookie set with this response (also set in the skyhaul_csrf cookie). Echo it in X-CSRF-Token on /auth/refresh and /auth/logout. Not a credential on its own."
           }
         },
         "required": [
           "access_token",
           "token_type",
           "expires_in",
-          "user"
+          "user",
+          "csrf_token"
         ]
       },
       "User": {
@@ -3181,6 +3362,39 @@
         "required": [
           "items",
           "next_cursor"
+        ]
+      },
+      "RefreshResponse": {
+        "description": "Same shape as LoginResponse: a new access token, a new CSRF token and the user, so a reload needs no /auth/me. The refresh cookie is rotated.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "HS256 JWT, valid for expires_in seconds. Keep it in memory only (ADR 0015); the refresh token travels only in the httpOnly cookie (ADR 0018)."
+          },
+          "token_type": {
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "csrf_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "CSRF token bound to the refresh cookie set with this response (also set in the skyhaul_csrf cookie). Echo it in X-CSRF-Token on /auth/refresh and /auth/logout. Not a credential on its own."
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "user",
+          "csrf_token"
         ]
       }
     }

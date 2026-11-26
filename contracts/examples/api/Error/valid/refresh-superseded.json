@@ -1,0 +1,5 @@
+{
+  "error": "refresh_superseded",
+  "detail": "The session was renewed by another request. Retry once.",
+  "request_id": "7a1c3e5f-2b4d-4c6e-8f10-0000000000aa"
+}
