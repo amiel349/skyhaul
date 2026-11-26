@@ -7,30 +7,28 @@ describe("BatteryBar", () => {
   it("shows the percentage", async () => {
     await renderComponent(BatteryBar, { props: { pct: 64, testid: "battery" } });
 
-    const bar = page.getByTestId("battery");
-    await expect.element(bar).toHaveTextContent("64%");
-    await expect.element(bar).toHaveAttribute("data-low", "false");
+    await expect.element(page.getByText("64%", { exact: true })).toBeInTheDocument();
+    // data-low and data-critical exist only as data attributes, so the wrapper is found by its test id.
+    await expect.element(page.getByTestId("battery")).toHaveAttribute("data-low", "false");
   });
 
   it("says LOW in words under 20%", async () => {
     await renderComponent(BatteryBar, { props: { pct: 12, testid: "battery" } });
 
-    const bar = page.getByTestId("battery");
-    await expect.element(bar).toHaveTextContent("LOW 12%");
-    await expect.element(bar).toHaveAttribute("data-low", "true");
+    await expect.element(page.getByText("LOW 12%", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByTestId("battery")).toHaveAttribute("data-low", "true");
   });
 
   it("says CRITICAL in words under 10%", async () => {
     await renderComponent(BatteryBar, { props: { pct: 5, testid: "battery" } });
 
-    const bar = page.getByTestId("battery");
-    await expect.element(bar).toHaveTextContent("CRITICAL 5%");
-    await expect.element(bar).toHaveAttribute("data-critical", "true");
+    await expect.element(page.getByText("CRITICAL 5%", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByTestId("battery")).toHaveAttribute("data-critical", "true");
   });
 
   it("says No data without a value", async () => {
     await renderComponent(BatteryBar, { props: { pct: null, testid: "battery" } });
 
-    await expect.element(page.getByTestId("battery")).toHaveTextContent("No data");
+    await expect.element(page.getByText("No data", { exact: true })).toBeInTheDocument();
   });
 });

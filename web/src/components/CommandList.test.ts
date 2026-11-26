@@ -12,7 +12,9 @@ async function renderList() {
 }
 
 const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
-const status = (cid: string) => page.getByTestId(`command-status-${cid}`);
+const shown = (text: string) => page.getByText(text, { exact: true });
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const items = () => page.getByRole("listitem");
 
 describe("CommandList", () => {
   it("loads the history when it opens and shows it newest first", async () => {
@@ -23,29 +25,29 @@ describe("CommandList", () => {
 
     await renderList();
 
-    await expect.element(page.getByTestId(`command-row-${id(2)}`)).toBeInTheDocument();
-    const rows = [...page.getByTestId("command-list").element().querySelectorAll("li")].map((li) =>
-      li.getAttribute("data-testid"),
-    );
-    expect(rows).toEqual([`command-row-${id(2)}`, `command-row-${id(1)}`]);
+    await expect.element(page.getByRole("list", { name: "Commands of this drone" })).toBeInTheDocument();
+    await expect.element(items().nth(1)).toBeInTheDocument();
+    await expect.element(items().nth(0)).toMatchTextContent("LAND");
+    await expect.element(items().nth(1)).toMatchTextContent("ARM");
+    expect(items().elements()).toHaveLength(2);
     expect(fakeDb.commands.listed).toEqual(["d1"]);
   });
 
   it("says No commands yet when the drone has none", async () => {
     await renderList();
 
-    await expect.element(page.getByTestId("command-log-empty")).toHaveTextContent("No commands yet");
+    await expect.element(shown("No commands yet")).toBeInTheDocument();
   });
 
   it("changes the status of a row in place when command.updated arrives", async () => {
     fakeDb.commands.add(commandFaketory.build({ id: id(1), status: "SENT" }));
     const store = await renderList();
-    await expect.element(status(id(1))).toHaveTextContent("SENT");
+    await expect.element(shown("SENT")).toBeInTheDocument();
 
     store.applyUpdate(commandFaketory.build({ id: id(1), status: "ACKED" }));
 
-    await expect.element(status(id(1))).toHaveTextContent("ACKED");
-    expect(page.getByTestId("command-list").element().querySelectorAll("li")).toHaveLength(1);
+    await expect.element(shown("ACKED")).toBeInTheDocument();
+    expect(items().elements()).toHaveLength(1);
   });
 
   it("shows nack_reason and nack_detail as text, never as HTML", async () => {
@@ -54,21 +56,20 @@ describe("CommandList", () => {
 
     await renderList();
 
-    await expect.element(page.getByTestId(`command-nack-reason-${id(1)}`)).toHaveTextContent("INVALID_STATE");
-    const detail = page.getByTestId(`command-nack-detail-${id(1)}`);
-    await expect.element(detail).toMatchTextContent(hostile);
-    expect(detail.element().querySelector("img")).toBeNull();
+    await expect.element(shown("INVALID_STATE")).toBeInTheDocument();
+    await expect.element(page.getByText(new RegExp(escapeRegExp(hostile)))).toBeInTheDocument();
+    expect(page.getByRole("img").elements()).toHaveLength(0);
   });
 
   it("shows No reply from drone for TIMED_OUT, then the new status with Late reply", async () => {
     fakeDb.commands.add(commandFaketory.build({ id: id(1), status: "TIMED_OUT" }));
     const store = await renderList();
-    await expect.element(page.getByTestId(`command-timeout-${id(1)}`)).toHaveTextContent("No reply from drone");
+    await expect.element(shown("No reply from drone")).toBeInTheDocument();
 
     store.applyUpdate(commandFaketory.build({ id: id(1), status: "ACKED", late: true }));
 
-    await expect.element(status(id(1))).toHaveTextContent("ACKED");
-    await expect.element(page.getByTestId(`command-late-${id(1)}`)).toHaveTextContent("Late reply");
+    await expect.element(shown("ACKED")).toBeInTheDocument();
+    await expect.element(shown("Late reply")).toBeInTheDocument();
   });
 
   it("shows Not sent to the drone for FAILED", async () => {
@@ -76,6 +77,6 @@ describe("CommandList", () => {
 
     await renderList();
 
-    await expect.element(page.getByTestId(`command-failed-${id(1)}`)).toHaveTextContent("Not sent to the drone");
+    await expect.element(shown("Not sent to the drone")).toBeInTheDocument();
   });
 });

@@ -12,15 +12,16 @@ async function renderForm(linkLost = false) {
   return useCommandsStore(pinia);
 }
 
-const type = () => page.getByTestId("command-type");
-const send = () => page.getByTestId("command-send");
-const field = (name: string) => page.getByTestId(`command-field-${name}`);
+const type = () => page.getByRole("combobox", { name: "Command" });
+const send = () => page.getByRole("button", { name: /^Send/ });
+const field = (label: string) => page.getByRole("textbox", { name: label });
+const alertText = (text: string) => page.getByRole("alert").filter({ hasText: text });
 
 describe("CommandForm", () => {
   it("offers the six direct commands and never START_MISSION", async () => {
     await renderForm();
 
-    const options = [...type().element().querySelectorAll("option")].map((o) => o.value);
+    const options = page.getByRole("option").elements().map((o) => (o as HTMLOptionElement).value);
     expect(options).toEqual(["ARM", "TAKEOFF", "GOTO", "RETURN_HOME", "LAND", "SET_SPEED"]);
   });
 
@@ -28,9 +29,9 @@ describe("CommandForm", () => {
     await renderForm();
 
     await type().selectOptions("GOTO");
-    await field("lat").fill("32.1");
-    await field("lon").fill("34.8");
-    await field("altitude_m").fill("30");
+    await field("Latitude (deg)").fill("32.1");
+    await field("Longitude (deg)").fill("34.8");
+    await field("Altitude (m)").fill("30");
     await send().click();
 
     await expect.poll(() => fakeDb.commands.requests.length).toBe(1);
@@ -51,11 +52,11 @@ describe("CommandForm", () => {
     await type().selectOptions("TAKEOFF");
 
     await send().click();
-    await expect.element(page.getByTestId("command-field-error-altitude_m")).toHaveTextContent("Required");
+    await expect.element(field("Altitude (m)")).toHaveAccessibleDescription("Required");
 
-    await field("altitude_m").fill("500");
+    await field("Altitude (m)").fill("500");
     await send().click();
-    await expect.element(page.getByTestId("command-field-error-altitude_m")).toMatchTextContent("Must be 5 to 120");
+    await expect.element(field("Altitude (m)")).toHaveAccessibleDescription(expect.stringContaining("Must be 5 to 120"));
     expect(fakeDb.commands.requests).toHaveLength(0);
   });
 
@@ -68,12 +69,12 @@ describe("CommandForm", () => {
     );
     await renderForm();
     await type().selectOptions("TAKEOFF");
-    await field("altitude_m").fill("30");
+    await field("Altitude (m)").fill("30");
 
     await send().click();
 
-    await expect.element(page.getByTestId("command-field-error-altitude_m")).toHaveTextContent("Too high for this drone");
-    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Invalid payload");
+    await expect.element(field("Altitude (m)")).toHaveAccessibleDescription("Too high for this drone");
+    await expect.element(alertText("Invalid payload")).toHaveTextContent("Invalid payload");
   });
 
   it("says Too many commands, wait, with the Retry-After seconds, on 429", async () => {
@@ -82,7 +83,7 @@ describe("CommandForm", () => {
 
     await send().click();
 
-    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Too many commands, wait 12 s");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Too many commands, wait 12 s");
   });
 
   it("shows an error and adds no row on 503 command_not_sent", async () => {
@@ -91,7 +92,7 @@ describe("CommandForm", () => {
 
     await send().click();
 
-    await expect.element(page.getByTestId("command-error")).toHaveTextContent("The broker did not confirm");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The broker did not confirm");
     expect(store.forDrone("d1")).toHaveLength(0);
   });
 
@@ -101,13 +102,13 @@ describe("CommandForm", () => {
 
     await send().click();
 
-    await expect.element(page.getByTestId("command-error")).toHaveTextContent("Drone is on a mission");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Drone is on a mission");
   });
 
   it("warns when the link is lost but still lets the dispatcher send", async () => {
     await renderForm(true);
 
-    await expect.element(page.getByTestId("command-link-warning")).toMatchTextContent("Link lost");
+    await expect.element(page.getByRole("status")).toMatchTextContent("Link lost");
     await expect.element(send()).toBeEnabled();
   });
 

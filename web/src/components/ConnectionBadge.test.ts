@@ -10,7 +10,7 @@ describe("ConnectionBadge", () => {
 
     useConnectionStore(pinia).set("live");
 
-    await expect.element(page.getByTestId("connection-badge")).toHaveTextContent("live");
+    await expect.element(page.getByText("live", { exact: true })).toBeInTheDocument();
   });
 
   it("shows a Reconnecting banner while the socket is down", async () => {
@@ -18,6 +18,6 @@ describe("ConnectionBadge", () => {
 
     useConnectionStore(pinia).set("reconnecting");
 
-    await expect.element(page.getByTestId("connection-reconnecting")).toHaveTextContent("Reconnecting");
+    await expect.element(page.getByRole("status")).toHaveTextContent("Reconnecting");
   });
 });

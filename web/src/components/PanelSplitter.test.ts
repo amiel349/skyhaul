@@ -25,17 +25,18 @@ async function renderSplitter(over: Record<string, unknown> = {}, attrs: Record<
 }
 
 // Alone on the page the bar has no height, so there is nothing to click: focus it like Tab would.
+const splitter = () => page.getByRole("separator", { name: "Resize fleet list" });
 function focusSplitter(): void {
-  (page.getByTestId("splitter").element() as HTMLElement).focus();
+  (splitter().element() as HTMLElement).focus();
 }
 
 describe("PanelSplitter", () => {
   it("is a labelled separator that shows its value and limits", async () => {
     await renderSplitter();
 
-    const bar = page.getByTestId("splitter");
-    await expect.element(bar).toHaveAttribute("role", "separator");
-    await expect.element(bar).toHaveAttribute("aria-label", "Resize fleet list");
+    // Found as a separator named "Resize fleet list": that proves its role and label.
+    const bar = splitter();
+    await expect.element(bar).toBeInTheDocument();
     await expect.element(bar).toHaveAttribute("aria-valuenow", "270");
     await expect.element(bar).toHaveAttribute("aria-valuemin", "200");
     await expect.element(bar).toHaveAttribute("aria-valuemax", "480");
@@ -71,19 +72,20 @@ describe("PanelSplitter", () => {
       { orientation: "horizontal", modelValue: 420, min: 240, max: 600 },
       { style: "width: 300px; height: 12px; margin-top: 120px" },
     );
-    const rect = page.getByTestId("splitter").element().getBoundingClientRect();
+    const horizontal = page.getByRole("separator", { name: "Resize fleet list" });
+    const rect = horizontal.element().getBoundingClientRect();
     const target = document.createElement("div");
     target.style.cssText = `position: absolute; width: 2px; height: 2px; left: ${rect.left + window.scrollX + 20}px; top: ${rect.top + window.scrollY + rect.height / 2 - 50}px`;
     document.body.append(target);
 
-    await userEvent.dragAndDrop(page.getByTestId("splitter"), target);
+    await userEvent.dragAndDrop(horizontal, target);
     target.remove();
 
     expect(onUpdate).toHaveBeenCalled();
     expect(onUpdate.mock.lastCall?.[0]).toBeGreaterThan(360);
     expect(onUpdate.mock.lastCall?.[0]).toBeLessThan(380);
     const calls = onUpdate.mock.calls.length;
-    await userEvent.hover(page.getByTestId("splitter"));
+    await userEvent.hover(horizontal);
     expect(onUpdate).toHaveBeenCalledTimes(calls);
   });
 });

@@ -111,6 +111,7 @@ async function submit(): Promise<void> {
         v-if="fieldErrors[spec.name]"
         :id="`command-field-error-${spec.name}`"
         class="err"
+        role="alert"
         :data-testid="`command-field-error-${spec.name}`"
       >{{ fieldErrors[spec.name] }}</span>
     </div>
